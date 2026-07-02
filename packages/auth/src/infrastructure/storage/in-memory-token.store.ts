@@ -12,7 +12,7 @@ export class InMemoryTokenStore implements ITokenStore {
     type: TokenRecord["type"],
   ): Promise<TokenRecord | null> {
     for (const record of this.tokens.values()) {
-      if (record.token === token && record.type === type && !record.consumedAt) {
+      if (record.token === token && record.type === type) {
         return record;
       }
     }
