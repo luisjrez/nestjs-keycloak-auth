@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Extended user profile — linked to Keycloak user via keycloakId.
+/// The auth package does NOT depend on this schema; it's the consumer's
+/// responsibility to implement ITokenStore and listen to AuthEvents.
+model UserProfile {
+  id          String   @id @default(cuid())
+  keycloakId  String   @unique
+  email       String   @unique
+  username    String   @unique
+  displayName String?
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("user_profiles")
+}
+
+/// Token store for magic links, reset-password tokens, verify-email tokens, refresh tokens.
+/// Consumers implement ITokenStore by mapping to their own DB schema.
+model Token {
+  id         String    @id @default(cuid())
+  userId     String
+  type       String    // MAGIC_LINK | RESET_PASSWORD | VERIFY_EMAIL | REFRESH_TOKEN
+  tokenHash  String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@map("tokens")
+}
