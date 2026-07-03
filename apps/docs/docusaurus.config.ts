@@ -7,7 +7,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: '@luisjrez/nestjs-keycloak-auth',
   tagline: 'Clean-architecture NestJS authentication module backed by Keycloak',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/favicon.png',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
@@ -50,14 +50,14 @@ const config: Config = {
   ],
 
     themeConfig: {
-      image: 'img/docusaurus-social-card.jpg',
+      image: 'img/social-card.png',
       colorMode: {
         respectPrefersColorScheme: true,
       },
       navbar: {
         title: '@luisjrez/nestjs-keycloak-auth',
         logo: {
-          alt: 'Keycloak Auth',
+          alt: 'nestjs-keycloak-auth logo',
           src: 'img/logo.svg',
         },
       items: [

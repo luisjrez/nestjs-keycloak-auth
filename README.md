@@ -1,4 +1,8 @@
-# @luisjrez/nestjs-keycloak-auth
+<p align="center">
+  <img src="https://raw.githubusercontent.com/luisjrez/nestjs-keycloak-auth/main/apps/docs/static/img/logo.svg" alt="nestjs-keycloak-auth logo" width="160" />
+</p>
+
+<h1 align="center">@luisjrez/nestjs-keycloak-auth</h1>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@luisjrez/nestjs-keycloak-auth">

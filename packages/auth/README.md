@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/luisjrez/nestjs-keycloak-auth/main/apps/docs/static/img/logo.svg" alt="nestjs-keycloak-auth logo" width="140" />
+</p>
+
 # @luisjrez/nestjs-keycloak-auth
 
 A clean-architecture NestJS authentication module backed by Keycloak as the source of truth for identity — with local token storage for extended profile, refresh tokens, and 2FA secrets.
