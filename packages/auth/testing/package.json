@@ -1,0 +1,6 @@
+{
+  "name": "@luisjrez/nestjs-keycloak-auth-testing",
+  "private": true,
+  "types": "../dist/testing/index.d.ts",
+  "main": "../dist/testing/index.js"
+}

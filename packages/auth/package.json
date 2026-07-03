@@ -28,11 +28,16 @@
     "./email": {
       "types": "./dist/email-templates/index.d.ts",
       "default": "./dist/email-templates/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
     }
   },
   "files": [
     "dist",
-    "src/email-templates/**/*.tsx"
+    "src/email-templates/**/*.tsx",
+    "testing/package.json"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

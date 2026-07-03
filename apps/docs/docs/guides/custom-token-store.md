@@ -74,6 +74,38 @@ Two tables:
 | `id`, `userId`, `type`, `tokenHash`, `expiresAt`, `consumedAt` (nullable), `createdAt` | `userId`, `key`, `value` |
 | index `tokenHash`, index `userId` | unique `(userId, key)` |
 
+## Verify your store against the contract
+
+The three rules above aren't checkable by the compiler, so the package ships a
+**conformance suite** you can run against your own implementation. It's
+framework-agnostic — plug it into Jest, Vitest, or `node:test`:
+
+```typescript
+import { tokenStoreContractCases } from "@luisjrez/nestjs-keycloak-auth/testing";
+
+describe("MyTokenStore", () => {
+  // Return a FRESH, EMPTY store per case (use an in-memory DB or truncate).
+  const makeStore = () => new MyTokenStore(makeInMemoryDb());
+
+  for (const { name, run } of tokenStoreContractCases(makeStore)) {
+    it(name, () => run());
+  }
+});
+```
+
+Or, outside a test runner (e.g. a non-prod startup self-check):
+
+```typescript
+import { assertTokenStoreContract } from "@luisjrez/nestjs-keycloak-auth/testing";
+
+await assertTokenStoreContract(() => new MyTokenStore(db)); // throws on violation
+```
+
+The suite covers all eight methods and specifically catches the two silent
+security bugs: a `findByToken` that hides consumed records, and a
+`markConsumed` that isn't atomic. The TypeORM and Drizzle examples below run it
+against an in-memory SQLite database — no Docker required.
+
 ## Complete, runnable examples
 
 Three full example apps in this repo implement the same store against different
