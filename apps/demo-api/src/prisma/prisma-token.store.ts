@@ -1,11 +1,6 @@
-import { createHash } from "node:crypto";
 import { Injectable } from "@nestjs/common";
-import type { ITokenStore, TokenRecord } from "@luisjrez/nestjs-keycloak-auth";
+import { hashToken, type ITokenStore, type TokenRecord } from "@luisjrez/nestjs-keycloak-auth";
 import { PrismaService } from "./prisma.service";
-
-function hash(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
 
 @Injectable()
 export class PrismaTokenStore implements ITokenStore {
@@ -16,7 +11,7 @@ export class PrismaTokenStore implements ITokenStore {
       data: {
         userId: record.userId,
         type: record.type,
-        tokenHash: hash(record.token),
+        tokenHash: hashToken(record.token),
         expiresAt: record.expiresAt,
       },
     });
@@ -26,8 +21,10 @@ export class PrismaTokenStore implements ITokenStore {
     token: string,
     type: TokenRecord["type"],
   ): Promise<TokenRecord | null> {
+    // NOTE: consumed records MUST be returned — refresh-token reuse
+    // detection depends on seeing them (see ITokenStore contract).
     const row = await this.prisma.token.findFirst({
-      where: { tokenHash: hash(token), type, consumedAt: null },
+      where: { tokenHash: hashToken(token), type },
     });
     if (!row) return null;
     return {
@@ -41,16 +38,25 @@ export class PrismaTokenStore implements ITokenStore {
     };
   }
 
-  async markConsumed(id: string): Promise<void> {
-    await this.prisma.token.update({
-      where: { id },
+  async markConsumed(id: string): Promise<boolean> {
+    // Conditional update = atomic consume; a second concurrent consumer
+    // matches zero rows and gets `false`.
+    const result = await this.prisma.token.updateMany({
+      where: { id, consumedAt: null },
       data: { consumedAt: new Date() },
     });
+    return result.count > 0;
   }
 
   async deleteExpired(): Promise<void> {
     await this.prisma.token.deleteMany({
       where: { expiresAt: { lt: new Date() } },
+    });
+  }
+
+  async deleteAllForUser(userId: string): Promise<void> {
+    await this.prisma.token.deleteMany({
+      where: { userId },
     });
   }
 

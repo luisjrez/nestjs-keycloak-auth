@@ -11,6 +11,7 @@ export class VerifyMagicLinkUseCase {
   constructor(
     private readonly authProvider: IAuthProvider,
     private readonly tokenStore: ITokenStore,
+    private readonly refreshTokenTtlMs: number = 7 * 24 * 60 * 60 * 1000,
   ) {}
 
   async execute(dto: VerifyMagicLinkDto): Promise<{
@@ -32,8 +33,26 @@ export class VerifyMagicLinkUseCase {
       throw new MagicLinkExpiredError("Magic link has expired");
     }
 
-    await this.tokenStore.markConsumed(record.id);
+    const consumed = await this.tokenStore.markConsumed(record.id);
+    if (!consumed) {
+      throw new MagicLinkAlreadyUsedError("Magic link has already been used");
+    }
 
-    return this.authProvider.issueTokens(record.userId);
+    const tokens = await this.authProvider.issueTokens(record.userId);
+
+    await this.tokenStore.save({
+      id: crypto.randomUUID(),
+      userId: record.userId,
+      type: "REFRESH_TOKEN",
+      token: tokens.refreshToken,
+      expiresAt: new Date(Date.now() + this.refreshTokenTtlMs),
+      createdAt: new Date(),
+    });
+
+    return {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresIn: tokens.expiresIn,
+    };
   }
 }

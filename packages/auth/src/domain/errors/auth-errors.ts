@@ -79,3 +79,18 @@ export class WeakPasswordError extends DomainError {
   public readonly code = "WEAK_PASSWORD";
   public readonly status = 422;
 }
+
+export class TokenReuseDetectedError extends DomainError {
+  public readonly code = "TOKEN_REUSE_DETECTED";
+  public readonly status = 401;
+}
+
+export class AccountLockedError extends DomainError {
+  public readonly code = "ACCOUNT_LOCKED";
+  public readonly status = 423;
+}
+
+export class HealthCheckFailedError extends DomainError {
+  public readonly code = "HEALTH_CHECK_FAILED";
+  public readonly status = 503;
+}

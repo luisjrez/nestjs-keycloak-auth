@@ -12,6 +12,9 @@ const TEST_DB_URL = "postgresql://auth_demo:auth_demo@localhost:5434/auth_demo";
 
 process.env["KEYCLOAK_SERVER_URL"] = "http://localhost:8080";
 process.env["DATABASE_URL"] = TEST_DB_URL;
+// The E2E registers many users in quick succession; the throttler is
+// exercised in its own dedicated test instead.
+process.env["RATE_LIMIT_DISABLED"] = "1";
 process.env["ACCESS_TOKEN_SECRET"] = "e2e-test-access-secret-never-use-in-prod";
 process.env["REFRESH_TOKEN_SECRET"] = "e2e-test-refresh-secret-never-use-in-prod";
 process.env["SMTP_HOST"] = "localhost";
@@ -441,6 +444,8 @@ describe("Auth E2E", () => {
       accessToken = loginRes.body.accessToken;
     });
 
+    let totpSecret: string;
+
     it("POST /api/auth/2fa/setup generates secret and QR code", async () => {
       const res = await request(app.getHttpServer())
         .post("/api/auth/2fa/setup")
@@ -452,17 +457,20 @@ describe("Auth E2E", () => {
         secret: expect.any(String),
         qrCodeUrl: expect.any(String),
       });
+      totpSecret = res.body.secret;
     });
 
-    it("POST /api/auth/2fa/verify returns verified boolean", async () => {
-      const setupRes = await request(app.getHttpServer())
+    it("POST /api/auth/2fa/setup again returns 409 when already configured", async () => {
+      await request(app.getHttpServer())
         .post("/api/auth/2fa/setup")
         .set("Authorization", `Bearer ${accessToken}`)
         .send({})
-        .expect(200);
+        .expect(409);
+    });
 
+    it("POST /api/auth/2fa/verify returns verified boolean", async () => {
       const speakeasy = await import("speakeasy");
-      const validCode = speakeasy.totp({ secret: setupRes.body.secret, encoding: "base32" });
+      const validCode = speakeasy.totp({ secret: totpSecret, encoding: "base32" });
 
       const res = await request(app.getHttpServer())
         .post("/api/auth/2fa/verify")
@@ -473,6 +481,36 @@ describe("Auth E2E", () => {
       expect(res.body).toMatchObject({
         verified: true,
       });
+    });
+
+    it("login now requires 2FA and completes via /2fa/complete", async () => {
+      const speakeasy = await import("speakeasy");
+
+      const loginRes = await request(app.getHttpServer())
+        .post("/api/auth/login")
+        .send({ email: faUser.email, password: faUser.password })
+        .expect(200);
+
+      // With TOTP configured, login yields a pre-auth token, not a session.
+      expect(loginRes.body.twoFactorRequired).toBe(true);
+      expect(loginRes.body.preAuthToken).toEqual(expect.any(String));
+      expect(loginRes.body.accessToken).toBeUndefined();
+
+      const validCode = speakeasy.totp({ secret: totpSecret, encoding: "base32" });
+
+      const completeRes = await request(app.getHttpServer())
+        .post("/api/auth/2fa/complete")
+        .send({ preAuthToken: loginRes.body.preAuthToken, code: validCode })
+        .expect(200);
+
+      expect(completeRes.body.accessToken).toEqual(expect.any(String));
+
+      const meRes = await request(app.getHttpServer())
+        .get("/api/auth/me")
+        .set("Authorization", `Bearer ${completeRes.body.accessToken}`)
+        .expect(200);
+
+      expect(meRes.body.email).toBe(faUser.email);
     });
   });
 });

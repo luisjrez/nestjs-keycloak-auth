@@ -1,13 +1,14 @@
-import axios, { type AxiosInstance } from "axios";
+import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
 import speakeasy from "speakeasy";
 import qrcode from "qrcode";
+import { Logger } from "@nestjs/common";
 import type {
   IAuthProvider,
   RegisterRequest,
   AuthenticateRequest,
   AuthenticateResponse,
   RefreshTokenRequest,
-  RefreshTokenResponse,
+  IssueTokensResponse,
   InitiatePasswordResetRequest,
   CompletePasswordResetRequest,
   Setup2FARequest,
@@ -17,8 +18,10 @@ import type {
 } from "../../domain/ports/auth-provider.port";
 import {
   EmailAlreadyExistsError,
+  EmailNotVerifiedError,
   UsernameAlreadyExistsError,
   InvalidCredentialsError,
+  TwoFactorAlreadyConfiguredError,
   UserNotFoundError,
 } from "../../domain/errors/auth-errors";
 import type { ITokenStore } from "../../domain/ports/token-store.port";
@@ -79,7 +82,14 @@ interface KcTokenResponse {
   token_type: string;
 }
 
+interface KcErrorResponse {
+  error?: string;
+  error_description?: string;
+  errorMessage?: string;
+}
+
 export class KeycloakAuthProvider implements IAuthProvider {
+  private readonly logger = new Logger(KeycloakAuthProvider.name);
   private readonly adminApi: AxiosInstance;
   private readonly oidcApi: AxiosInstance;
   private adminTokenCache: { accessToken: string; expiresAt: number } | null = null;
@@ -133,20 +143,20 @@ export class KeycloakAuthProvider implements IAuthProvider {
   ): Promise<T> {
     const token = await this.getAdminToken();
     const isGet = method.toLowerCase() === "get";
-    const config: Record<string, unknown> = {
+    const config: AxiosRequestConfig = {
       method,
       url: path,
       headers: { Authorization: `Bearer ${token}` },
     };
 
     if (isGet) {
-      config["params"] = dataOrParams;
+      config.params = dataOrParams;
     } else {
-      config["data"] = dataOrParams;
+      config.data = dataOrParams;
     }
 
     try {
-      const response = await this.adminApi.request<T>(config as any);
+      const response = await this.adminApi.request<T>(config);
       if (response.status === 204) return undefined as T;
       return response.data;
     } catch (error: unknown) {
@@ -201,7 +211,7 @@ export class KeycloakAuthProvider implements IAuthProvider {
 
   // ─── Error Mapping ────────────────────────────────────────
 
-  private mapAdminError(status: number, data: any, _path: string): Error {
+  private mapAdminError(status: number, data: KcErrorResponse | undefined, _path: string): Error {
     const message =
       data?.errorMessage ?? data?.error_description ?? data?.error ?? "Keycloak admin error";
 
@@ -220,9 +230,15 @@ export class KeycloakAuthProvider implements IAuthProvider {
     return new Error(message);
   }
 
-  private mapOidcError(status: number, data: any): Error {
+  private mapOidcError(status: number, data: KcErrorResponse | undefined): Error {
     const error = data?.error ?? "";
     const description = data?.error_description ?? "Authentication failed";
+
+    if (error === "invalid_grant" && description.toLowerCase().includes("account is not fully set up")) {
+      return new EmailNotVerifiedError(
+        "Email not verified. Check your inbox for a verification link, or contact support.",
+      );
+    }
 
     if (status === 401 || error === "invalid_grant") {
       return new InvalidCredentialsError(description);
@@ -251,7 +267,7 @@ export class KeycloakAuthProvider implements IAuthProvider {
       username: req.username,
       email: req.email,
       enabled: true,
-      emailVerified: true,
+      emailVerified: req.emailVerified ?? true,
       credentials: [
         {
           type: "password",
@@ -261,7 +277,9 @@ export class KeycloakAuthProvider implements IAuthProvider {
       ],
     });
 
-    return this.getUserByEmail(req.email);
+    const user = await this.getUserByEmail(req.email);
+    this.logger.log(`User registered: ${user.id}`);
+    return user;
   }
 
   async authenticate(req: AuthenticateRequest): Promise<AuthenticateResponse> {
@@ -274,13 +292,16 @@ export class KeycloakAuthProvider implements IAuthProvider {
     const user = await this.getUserByEmail(req.email);
     const tokens = await this.signUserTokens(user);
 
+    this.logger.log(`User authenticated: ${user.id}`);
     return { ...tokens, user };
   }
 
-  async refreshToken(req: RefreshTokenRequest): Promise<RefreshTokenResponse> {
+  async refreshToken(req: RefreshTokenRequest): Promise<IssueTokensResponse> {
     const payload = await this.jwtService.verifyRefreshToken(req.refreshToken);
     const user = await this.getUserById(payload.sub);
-    return this.signUserTokens(user);
+    const tokens = await this.signUserTokens(user);
+    this.logger.log(`Token refreshed for user: ${user.id}`);
+    return { ...tokens, sub: user.id };
   }
 
   async logout(refreshToken: string): Promise<void> {
@@ -325,6 +346,17 @@ export class KeycloakAuthProvider implements IAuthProvider {
   }
 
   async setup2FA(req: Setup2FARequest): Promise<Setup2FAResponse> {
+    // A stolen access token must not silently rotate the victim's TOTP
+    // secret; the existing 2FA has to be disabled first.
+    if (this.tokenStore) {
+      const existing = await this.tokenStore.getUserData(req.userId, "totpSecret");
+      if (existing) {
+        throw new TwoFactorAlreadyConfiguredError(
+          "2FA is already configured for this account — disable it before setting it up again",
+        );
+      }
+    }
+
     const secret = speakeasy.generateSecret({
       name: `Keycloak Auth (${req.userId})`,
     });
@@ -362,10 +394,8 @@ export class KeycloakAuthProvider implements IAuthProvider {
     try {
       await this.adminRequest("put", `/users/${userId}/send-verify-email`);
     } catch (err) {
-      // Keycloak may not have SMTP configured; log and skip
-      console.warn(
-        `[KeycloakAuthProvider] Could not send verify email for ${userId}:`,
-        (err as Error).message,
+      this.logger.warn(
+        `Could not send verify email for user ${userId}: ${(err as Error).message}. Ensure SMTP is configured in the Keycloak realm.`,
       );
     }
   }
@@ -374,8 +404,9 @@ export class KeycloakAuthProvider implements IAuthProvider {
     throw new Error("Email verification is handled by Keycloak directly");
   }
 
-  async issueTokens(userId: string): Promise<RefreshTokenResponse> {
+  async issueTokens(userId: string): Promise<IssueTokensResponse> {
     const user = await this.getUserById(userId);
-    return this.signUserTokens(user);
+    const tokens = await this.signUserTokens(user);
+    return { ...tokens, sub: user.id };
   }
 }

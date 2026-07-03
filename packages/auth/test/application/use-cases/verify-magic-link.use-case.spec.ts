@@ -53,6 +53,7 @@ describe("VerifyMagicLinkUseCase", () => {
       accessToken: "access-token-123",
       refreshToken: "refresh-token-123",
       expiresIn: 900,
+      sub: "user-1",
     });
 
     const result = await useCase.execute({ token: "valid-magic-token" });
@@ -71,6 +72,7 @@ describe("VerifyMagicLinkUseCase", () => {
       accessToken: "a",
       refreshToken: "r",
       expiresIn: 900,
+      sub: "user-1",
     });
 
     await useCase.execute({ token: "valid-magic-token" });

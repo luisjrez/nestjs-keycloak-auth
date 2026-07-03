@@ -1,9 +1,15 @@
-import { Injectable, CanActivate, ExecutionContext } from "@nestjs/common";
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { JwtAuthGuard } from "./jwt-auth.guard";
 
 /**
- * Like JwtAuthGuard but does NOT throw when no token is present.
- * request.user will be undefined when unauthenticated.
+ * Like JwtAuthGuard but does NOT throw when authentication fails.
+ * request.user will be undefined when unauthenticated. Unexpected
+ * (non-auth) errors still propagate.
  */
 @Injectable()
 export class OptionalAuthGuard implements CanActivate {
@@ -12,10 +18,13 @@ export class OptionalAuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     try {
       return await this.jwtGuard.canActivate(context);
-    } catch {
-      const request = context.switchToHttp().getRequest();
-      request.user = undefined;
-      return true;
+    } catch (err) {
+      if (err instanceof UnauthorizedException) {
+        const request = context.switchToHttp().getRequest();
+        request.user = undefined;
+        return true;
+      }
+      throw err;
     }
   }
 }

@@ -1,10 +1,33 @@
-import { DynamicModule, Global, Module, Provider, ValidationPipe } from "@nestjs/common";
+import {
+  DynamicModule,
+  Global,
+  Logger,
+  Module,
+  Provider,
+  ValidationPipe,
+  type ModuleMetadata,
+  type PipeTransform,
+} from "@nestjs/common";
 import { APP_FILTER, APP_GUARD, APP_PIPE } from "@nestjs/core";
+import {
+  getOptionsToken,
+  getStorageToken,
+  ThrottlerGuard,
+  ThrottlerStorageService,
+} from "@nestjs/throttler";
+import { ConfigurableThrottlerGuard } from "./guards/configurable-throttler.guard";
 import { AuthController } from "./controllers/auth.controller";
+import { CsrfController } from "./controllers/csrf.controller";
 import { JwtAuthGuard } from "./guards/jwt-auth.guard";
+import { GlobalAuthGuard } from "./guards/global-auth.guard";
 import { OptionalAuthGuard } from "./guards/optional-auth.guard";
+import { CsrfGuard } from "./guards/csrf.guard";
 import { AuthExceptionFilter } from "./filters/auth-exception.filter";
 import { AuthEventBus } from "./events/auth-event-bus";
+import { AUTH_MODULE_OPTIONS, AUTH_PROVIDER, TOKEN_STORE } from "./auth.constants";
+import { validateAuthModuleOptions } from "./validate-options";
+import { parseDurationMs } from "../domain/utils/duration";
+import type { ITokenStore } from "../domain/ports/token-store.port";
 import { JwtTokenService } from "../infrastructure/jwt/jwt-token.service";
 import { KeycloakAuthProvider, loadKeycloakConfigFromPath } from "../infrastructure/keycloak/keycloak-auth.provider";
 import { MailpitEmailSender } from "../infrastructure/email/mailpit-email.sender";
@@ -12,6 +35,7 @@ import { ReactEmailRenderer } from "../infrastructure/email/react-email.renderer
 
 import { RegisterUseCase } from "../application/use-cases/register.use-case";
 import { LoginUseCase } from "../application/use-cases/login.use-case";
+import { Complete2FALoginUseCase } from "../application/use-cases/complete-2fa-login.use-case";
 import { RefreshTokenUseCase } from "../application/use-cases/refresh-token.use-case";
 import { ForgotPasswordUseCase } from "../application/use-cases/forgot-password.use-case";
 import { ResetPasswordUseCase } from "../application/use-cases/reset-password.use-case";
@@ -23,99 +47,79 @@ import { LogoutUseCase } from "../application/use-cases/logout.use-case";
 
 import type { AuthModuleOptions, AuthModuleAsyncOptions } from "./interfaces/auth-module-options.interface";
 
+const USE_CASES = [
+  RegisterUseCase,
+  LoginUseCase,
+  Complete2FALoginUseCase,
+  RefreshTokenUseCase,
+  ForgotPasswordUseCase,
+  ResetPasswordUseCase,
+  SendMagicLinkUseCase,
+  VerifyMagicLinkUseCase,
+  Setup2FAUseCase,
+  Verify2FAUseCase,
+  LogoutUseCase,
+] as const;
+
+function refreshTokenTtlMs(options: AuthModuleOptions): number {
+  return parseDurationMs(options.jwt.refreshToken.expiresIn);
+}
+
 @Global()
 @Module({})
 export class AuthModule {
   static forRoot(options: AuthModuleOptions): DynamicModule {
-    return {
-      module: AuthModule,
-      controllers: [AuthController],
-      providers: [
-        ...AuthModule.createCoreProviders(),
-        ...AuthModule.createInfrastructureProviders(options),
-        ...AuthModule.createUseCaseProviders(),
-        {
-          provide: APP_GUARD,
-          useClass: JwtAuthGuard,
-        },
-        {
-          provide: APP_FILTER,
-          useClass: AuthExceptionFilter,
-        },
-      ],
-      exports: [AuthEventBus, JwtTokenService, ReactEmailRenderer],
-    };
+    return AuthModule.build({
+      provide: AUTH_MODULE_OPTIONS,
+      useValue: validateAuthModuleOptions(options),
+    });
   }
 
   static forRootAsync(options: AuthModuleAsyncOptions): DynamicModule {
-    const providers: Provider[] = [
-      ...AuthModule.createCoreProviders(),
-      ...AuthModule.createUseCaseProviders(),
+    return AuthModule.build(
       {
-        provide: APP_GUARD,
-        useClass: JwtAuthGuard,
+        provide: AUTH_MODULE_OPTIONS,
+        inject: options.inject ?? [],
+        useFactory: async (...args: unknown[]) =>
+          validateAuthModuleOptions(await options.useFactory(...args)),
       },
-      {
-        provide: APP_FILTER,
-        useClass: AuthExceptionFilter,
-      },
-    ];
+      options.imports ?? [],
+    );
+  }
 
+  private static build(
+    optionsProvider: Provider,
+    imports: ModuleMetadata["imports"] = [],
+  ): DynamicModule {
     return {
       module: AuthModule,
-      imports: options.imports ?? [],
-      controllers: [AuthController],
+      imports,
+      controllers: [AuthController, CsrfController],
       providers: [
-        ...providers,
-        {
-          provide: "AUTH_MODULE_OPTIONS",
-          inject: options.inject ?? [],
-          useFactory: options.useFactory,
-        },
-        {
-          provide: KeycloakAuthProvider,
-          inject: ["AUTH_MODULE_OPTIONS", JwtTokenService, "ITokenStore"],
-          useFactory: async (opts: AuthModuleOptions, jwt: JwtTokenService, store: any) => {
-            if (opts.keycloak) {
-              return new KeycloakAuthProvider(opts.keycloak, jwt, store);
-            }
-            if (opts.keycloakConfigPath) {
-              const kcConfig = await loadKeycloakConfigFromPath(
-                opts.keycloakConfigPath,
-                process.env["KEYCLOAK_SERVER_URL"],
-              );
-              return new KeycloakAuthProvider(kcConfig, jwt, store);
-            }
-            throw new Error("Keycloak config is required — provide keycloak or keycloakConfigPath");
-          },
-        },
-        {
-          provide: MailpitEmailSender,
-          inject: ["AUTH_MODULE_OPTIONS"],
-          useFactory: (opts: AuthModuleOptions) => {
-            return new MailpitEmailSender(opts.email);
-          },
-        },
-        {
-          provide: JwtTokenService,
-          inject: ["AUTH_MODULE_OPTIONS"],
-          useFactory: (opts: AuthModuleOptions) => {
-            return new JwtTokenService(opts.jwt);
-          },
-        },
-        {
-          provide: "ITokenStore",
-          inject: ["AUTH_MODULE_OPTIONS"],
-          useFactory: (opts: AuthModuleOptions) => {
-            return opts.tokenStore;
-          },
-        },
-        {
-          provide: ReactEmailRenderer,
-          useFactory: () => new ReactEmailRenderer(),
-        },
+        optionsProvider,
+        ...AuthModule.createCoreProviders(),
+        ...AuthModule.createInfrastructureProviders(),
+        ...AuthModule.createUseCaseProviders(),
+        ...AuthModule.createThrottlerProviders(),
+        { provide: APP_GUARD, useClass: GlobalAuthGuard },
+        { provide: APP_GUARD, useClass: CsrfGuard },
+        { provide: APP_FILTER, useClass: AuthExceptionFilter },
       ],
-      exports: [AuthEventBus, JwtTokenService, ReactEmailRenderer],
+      exports: [
+        AUTH_MODULE_OPTIONS,
+        TOKEN_STORE,
+        AUTH_PROVIDER,
+        AuthEventBus,
+        JwtTokenService,
+        ReactEmailRenderer,
+        JwtAuthGuard,
+        OptionalAuthGuard,
+        CsrfGuard,
+        ThrottlerGuard,
+        getOptionsToken(),
+        getStorageToken(),
+        ...USE_CASES,
+      ],
     };
   }
 
@@ -123,51 +127,58 @@ export class AuthModule {
     return [
       AuthEventBus,
       JwtAuthGuard,
-      {
-        provide: OptionalAuthGuard,
-        useClass: OptionalAuthGuard,
-      },
+      OptionalAuthGuard,
+      CsrfGuard,
       {
         provide: APP_PIPE,
-        useFactory: () =>
-          new ValidationPipe({
-            whitelist: true,
-            forbidNonWhitelisted: true,
-            transform: true,
-          }),
+        inject: [AUTH_MODULE_OPTIONS],
+        useFactory: (opts: AuthModuleOptions): PipeTransform =>
+          opts.globals?.validationPipe === false
+            ? { transform: (value: unknown) => value }
+            : new ValidationPipe({
+                whitelist: true,
+                forbidNonWhitelisted: true,
+                transform: true,
+              }),
       },
     ];
   }
 
-  private static createInfrastructureProviders(
-    options: AuthModuleOptions,
-  ): Provider[] {
+  private static createInfrastructureProviders(): Provider[] {
     return [
       {
-        provide: "AUTH_MODULE_OPTIONS",
-        useValue: options,
+        provide: JwtTokenService,
+        inject: [AUTH_MODULE_OPTIONS],
+        useFactory: (opts: AuthModuleOptions) => new JwtTokenService(opts.jwt),
+      },
+      {
+        provide: TOKEN_STORE,
+        inject: [AUTH_MODULE_OPTIONS],
+        useFactory: (opts: AuthModuleOptions) => opts.tokenStore,
       },
       {
         provide: KeycloakAuthProvider,
-        inject: [JwtTokenService, "ITokenStore"],
-        useFactory: (jwt: JwtTokenService, store: any) => {
-          if (options.keycloak) {
-            return new KeycloakAuthProvider(options.keycloak, jwt, store);
+        inject: [AUTH_MODULE_OPTIONS, JwtTokenService, TOKEN_STORE],
+        useFactory: async (opts: AuthModuleOptions, jwt: JwtTokenService, store: ITokenStore) => {
+          if (opts.keycloak) {
+            return new KeycloakAuthProvider(opts.keycloak, jwt, store);
           }
-          throw new Error("Keycloak config is required — provide keycloak option");
+          if (opts.keycloakConfigPath) {
+            const kcConfig = await loadKeycloakConfigFromPath(
+              opts.keycloakConfigPath,
+              process.env["KEYCLOAK_SERVER_URL"],
+            );
+            return new KeycloakAuthProvider(kcConfig, jwt, store);
+          }
+          // Unreachable: validateAuthModuleOptions already enforces this.
+          throw new Error("Keycloak config is required — provide keycloak or keycloakConfigPath");
         },
       },
+      { provide: AUTH_PROVIDER, useExisting: KeycloakAuthProvider },
       {
         provide: MailpitEmailSender,
-        useFactory: () => new MailpitEmailSender(options.email),
-      },
-      {
-        provide: JwtTokenService,
-        useFactory: () => new JwtTokenService(options.jwt),
-      },
-      {
-        provide: "ITokenStore",
-        useValue: options.tokenStore,
+        inject: [AUTH_MODULE_OPTIONS],
+        useFactory: (opts: AuthModuleOptions) => new MailpitEmailSender(opts.email),
       },
       {
         provide: ReactEmailRenderer,
@@ -176,31 +187,70 @@ export class AuthModule {
     ];
   }
 
+  private static createThrottlerProviders(): Provider[] {
+    return [
+      {
+        provide: getOptionsToken(),
+        inject: [AUTH_MODULE_OPTIONS],
+        useFactory: (opts: AuthModuleOptions) => [
+          {
+            limit: opts.rateLimit?.limit ?? 10,
+            ttl: (opts.rateLimit?.ttl ?? 60) * 1000,
+          },
+        ],
+      },
+      {
+        provide: getStorageToken(),
+        useFactory: () => new ThrottlerStorageService(),
+      },
+      ConfigurableThrottlerGuard,
+      { provide: ThrottlerGuard, useExisting: ConfigurableThrottlerGuard },
+    ];
+  }
+
   private static createUseCaseProviders(): Provider[] {
     return [
       {
         provide: RegisterUseCase,
-        inject: [KeycloakAuthProvider],
-        useFactory: (auth: KeycloakAuthProvider) =>
-          new RegisterUseCase(auth),
+        inject: [KeycloakAuthProvider, AUTH_MODULE_OPTIONS],
+        useFactory: (auth: KeycloakAuthProvider, opts: AuthModuleOptions) =>
+          new RegisterUseCase(auth, {
+            requireEmailVerification: opts.requireEmailVerification ?? false,
+          }),
       },
       {
         provide: LoginUseCase,
-        inject: [KeycloakAuthProvider],
-        useFactory: (auth: KeycloakAuthProvider) => new LoginUseCase(auth),
+        inject: [KeycloakAuthProvider, TOKEN_STORE, AUTH_MODULE_OPTIONS],
+        useFactory: (auth: KeycloakAuthProvider, store: ITokenStore, opts: AuthModuleOptions) =>
+          new LoginUseCase(auth, store, {
+            ...(opts.lockout?.maxAttempts !== undefined && {
+              maxFailedAttempts: opts.lockout.maxAttempts,
+            }),
+            ...(opts.lockout?.duration !== undefined && {
+              lockoutDurationMs: opts.lockout.duration,
+            }),
+            refreshTokenTtlMs: refreshTokenTtlMs(opts),
+            logger: new Logger(LoginUseCase.name),
+          }),
+      },
+      {
+        provide: Complete2FALoginUseCase,
+        inject: [KeycloakAuthProvider, TOKEN_STORE, AUTH_MODULE_OPTIONS],
+        useFactory: (auth: KeycloakAuthProvider, store: ITokenStore, opts: AuthModuleOptions) =>
+          new Complete2FALoginUseCase(auth, store, refreshTokenTtlMs(opts)),
       },
       {
         provide: RefreshTokenUseCase,
-        inject: [KeycloakAuthProvider],
-        useFactory: (auth: KeycloakAuthProvider) =>
-          new RefreshTokenUseCase(auth),
+        inject: [KeycloakAuthProvider, TOKEN_STORE, AUTH_MODULE_OPTIONS],
+        useFactory: (auth: KeycloakAuthProvider, store: ITokenStore, opts: AuthModuleOptions) =>
+          new RefreshTokenUseCase(auth, store, refreshTokenTtlMs(opts)),
       },
       {
         provide: ForgotPasswordUseCase,
-        inject: [KeycloakAuthProvider, "ITokenStore", MailpitEmailSender, ReactEmailRenderer, "AUTH_MODULE_OPTIONS"],
+        inject: [KeycloakAuthProvider, TOKEN_STORE, MailpitEmailSender, ReactEmailRenderer, AUTH_MODULE_OPTIONS],
         useFactory: (
           auth: KeycloakAuthProvider,
-          store: any,
+          store: ITokenStore,
           email: MailpitEmailSender,
           renderer: ReactEmailRenderer,
           opts: AuthModuleOptions,
@@ -208,16 +258,16 @@ export class AuthModule {
       },
       {
         provide: ResetPasswordUseCase,
-        inject: [KeycloakAuthProvider, "ITokenStore"],
-        useFactory: (auth: KeycloakAuthProvider, store: any) =>
+        inject: [KeycloakAuthProvider, TOKEN_STORE],
+        useFactory: (auth: KeycloakAuthProvider, store: ITokenStore) =>
           new ResetPasswordUseCase(auth, store),
       },
       {
         provide: SendMagicLinkUseCase,
-        inject: [KeycloakAuthProvider, "ITokenStore", MailpitEmailSender, ReactEmailRenderer, "AUTH_MODULE_OPTIONS"],
+        inject: [KeycloakAuthProvider, TOKEN_STORE, MailpitEmailSender, ReactEmailRenderer, AUTH_MODULE_OPTIONS],
         useFactory: (
           auth: KeycloakAuthProvider,
-          store: any,
+          store: ITokenStore,
           email: MailpitEmailSender,
           renderer: ReactEmailRenderer,
           opts: AuthModuleOptions,
@@ -225,9 +275,9 @@ export class AuthModule {
       },
       {
         provide: VerifyMagicLinkUseCase,
-        inject: [KeycloakAuthProvider, "ITokenStore"],
-        useFactory: (auth: KeycloakAuthProvider, store: any) =>
-          new VerifyMagicLinkUseCase(auth, store),
+        inject: [KeycloakAuthProvider, TOKEN_STORE, AUTH_MODULE_OPTIONS],
+        useFactory: (auth: KeycloakAuthProvider, store: ITokenStore, opts: AuthModuleOptions) =>
+          new VerifyMagicLinkUseCase(auth, store, refreshTokenTtlMs(opts)),
       },
       {
         provide: Setup2FAUseCase,
@@ -237,14 +287,13 @@ export class AuthModule {
       {
         provide: Verify2FAUseCase,
         inject: [KeycloakAuthProvider],
-        useFactory: (auth: KeycloakAuthProvider) =>
-          new Verify2FAUseCase(auth),
+        useFactory: (auth: KeycloakAuthProvider) => new Verify2FAUseCase(auth),
       },
       {
         provide: LogoutUseCase,
-        inject: [KeycloakAuthProvider],
-        useFactory: (auth: KeycloakAuthProvider) =>
-          new LogoutUseCase(auth),
+        inject: [KeycloakAuthProvider, TOKEN_STORE],
+        useFactory: (auth: KeycloakAuthProvider, store: ITokenStore) =>
+          new LogoutUseCase(auth, store),
       },
     ];
   }

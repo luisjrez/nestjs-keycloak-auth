@@ -64,7 +64,7 @@ describe("ResetPasswordUseCase", () => {
     expect(result.message).toContain("reset successfully");
   });
 
-  it("should mark token as consumed after reset", async () => {
+  it("should prevent the reset token from being reused", async () => {
     await setupValidToken();
     mockAuthProvider.completePasswordReset.mockResolvedValue(undefined);
 
@@ -73,8 +73,58 @@ describe("ResetPasswordUseCase", () => {
       newPassword: "NewSecurePass123@",
     });
 
-    const record = await tokenStore.findByToken("valid-reset-token", "RESET_PASSWORD");
-    expect(record!.consumedAt).toBeDefined();
+    // A second attempt with the same token must fail (single-use).
+    await expect(
+      useCase.execute({
+        token: "valid-reset-token",
+        newPassword: "AnotherPass123@",
+      }),
+    ).rejects.toThrow(TokenInvalidError);
+    expect(mockAuthProvider.completePasswordReset).toHaveBeenCalledTimes(1);
+  });
+
+  it("should revoke all user sessions after a successful reset", async () => {
+    await setupValidToken();
+    mockAuthProvider.completePasswordReset.mockResolvedValue(undefined);
+
+    // A live refresh token that should be gone after the reset.
+    await tokenStore.save({
+      id: "rt-live",
+      userId: "user-1",
+      type: "REFRESH_TOKEN",
+      token: "live-refresh",
+      expiresAt: new Date(Date.now() + 3600000),
+      createdAt: new Date(),
+    });
+
+    await useCase.execute({
+      token: "valid-reset-token",
+      newPassword: "NewSecurePass123@",
+    });
+
+    const survivor = await tokenStore.findByToken("live-refresh", "REFRESH_TOKEN");
+    expect(survivor).toBeNull();
+  });
+
+  it("should reject a token that was already consumed", async () => {
+    const consumed: TokenRecord = {
+      id: "reset-consumed",
+      userId: "user-1",
+      type: "RESET_PASSWORD",
+      token: "used-reset-token",
+      expiresAt: new Date(Date.now() + 3600000),
+      consumedAt: new Date(),
+      createdAt: new Date(),
+    };
+    await tokenStore.save(consumed);
+
+    await expect(
+      useCase.execute({
+        token: "used-reset-token",
+        newPassword: "NewSecurePass123@",
+      }),
+    ).rejects.toThrow(TokenInvalidError);
+    expect(mockAuthProvider.completePasswordReset).not.toHaveBeenCalled();
   });
 
   it("should throw for invalid token", async () => {

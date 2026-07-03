@@ -27,6 +27,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Without a generated client, PrismaClient degrades to an index
+      # signature and typecheck fails with TS4111.
+      - name: Generate Prisma client
+        run: pnpm --filter demo-api exec prisma generate
+
       - name: Type check
         run: pnpm typecheck
 
@@ -39,21 +44,6 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     needs: quality
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: auth_demo
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -71,15 +61,17 @@ jobs:
       - name: Build auth package
         run: pnpm --filter @luisjrez/nestjs-keycloak-auth build
 
-      - name: Push Prisma schema
-        run: pnpm --filter demo-api exec prisma db push --accept-data-loss --force-reset
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5434/auth_demo
-
-      - name: Start Docker services (Keycloak + Mailpit)
+      # docker-compose provides Keycloak (:8080), Mailpit (:1025/:8025),
+      # Keycloak's postgres (:5433) and the demo-api postgres (:5434).
+      - name: Start Docker services
         run: docker compose -f docker/docker-compose.yml up -d
-        env:
-          POSTGRES_HOST: postgres
+
+      - name: Wait for demo-api database
+        run: |
+          for i in $(seq 1 30); do
+            docker exec kc-auth-demo-db pg_isready -U auth_demo > /dev/null 2>&1 && break
+            sleep 2
+          done
 
       - name: Wait for Keycloak
         run: |
@@ -88,10 +80,15 @@ jobs:
             sleep 2
           done
 
+      - name: Generate Prisma client and push schema
+        run: pnpm --filter demo-api exec prisma db push --accept-data-loss --force-reset
+        env:
+          DATABASE_URL: postgresql://auth_demo:auth_demo@localhost:5434/auth_demo
+
       - name: E2E tests
         run: pnpm test:e2e
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5434/auth_demo
+          DATABASE_URL: postgresql://auth_demo:auth_demo@localhost:5434/auth_demo
           KEYCLOAK_SERVER_URL: http://localhost:8080
 
       - name: Cleanup

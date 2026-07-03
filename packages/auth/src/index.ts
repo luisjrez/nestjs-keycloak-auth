@@ -7,8 +7,10 @@ export {
   EmailNotVerifiedError,
   TokenExpiredError,
   TokenInvalidError,
+  TokenReuseDetectedError,
   UserNotFoundError,
   AccountDisabledError,
+  AccountLockedError,
   TwoFactorRequiredError,
   TwoFactorInvalidError,
   TwoFactorAlreadyConfiguredError,
@@ -17,21 +19,30 @@ export {
   MagicLinkAlreadyUsedError,
   ResetTokenExpiredError,
   WeakPasswordError,
+  HealthCheckFailedError,
 } from "./domain/errors/auth-errors";
 
 export { Email } from "./domain/value-objects/email";
 export { Password } from "./domain/value-objects/password";
-export { User } from "./domain/entities/user";
-export { TokenPair } from "./domain/entities/token-pair";
+export type { User } from "./domain/entities/user";
+export type { TokenPair } from "./domain/entities/token-pair";
 
 export type { IAuthProvider } from "./domain/ports/auth-provider.port";
 export type { IEmailSender } from "./domain/ports/email-sender.port";
-export type { ITokenStore } from "./domain/ports/token-store.port";
-export type { TokenRecord } from "./domain/ports/token-store.port";
+export type { IEmailRenderer } from "./domain/ports/email-renderer.port";
+export type { ILogger } from "./domain/ports/logger.port";
+export type { ITokenStore, TokenRecord } from "./domain/ports/token-store.port";
+export { parseDurationSeconds, parseDurationMs } from "./domain/utils/duration";
 
 // ─── Application ────────────────────────────────────────────
 export { RegisterUseCase } from "./application/use-cases/register.use-case";
 export { LoginUseCase } from "./application/use-cases/login.use-case";
+export type {
+  LoginResult,
+  LoginSuccessResponse,
+  TwoFactorRequiredResponse,
+} from "./application/use-cases/login.use-case";
+export { Complete2FALoginUseCase } from "./application/use-cases/complete-2fa-login.use-case";
 export { RefreshTokenUseCase } from "./application/use-cases/refresh-token.use-case";
 export { ForgotPasswordUseCase } from "./application/use-cases/forgot-password.use-case";
 export { ResetPasswordUseCase } from "./application/use-cases/reset-password.use-case";
@@ -44,6 +55,7 @@ export { LogoutUseCase } from "./application/use-cases/logout.use-case";
 export {
   RegisterDto,
   LoginDto,
+  Complete2FADto,
   RefreshTokenDto,
   ForgotPasswordDto,
   ResetPasswordDto,
@@ -56,14 +68,18 @@ export {
 // ─── NestJS Module ──────────────────────────────────────────
 export { AuthModule } from "./nestjs/auth.module";
 export { AuthController } from "./nestjs/controllers/auth.controller";
+export { CsrfController } from "./nestjs/controllers/csrf.controller";
 export { JwtAuthGuard } from "./nestjs/guards/jwt-auth.guard";
 export { OptionalAuthGuard } from "./nestjs/guards/optional-auth.guard";
+export { CsrfGuard } from "./nestjs/guards/csrf.guard";
 export { CurrentUser } from "./nestjs/decorators/current-user.decorator";
 export { Public } from "./nestjs/decorators/public.decorator";
 export { AuthExceptionFilter } from "./nestjs/filters/auth-exception.filter";
 export { AuthEventBus } from "./nestjs/events/auth-event-bus";
+export { AUTH_MODULE_OPTIONS, TOKEN_STORE, AUTH_PROVIDER } from "./nestjs/auth.constants";
+export { validateAuthModuleOptions } from "./nestjs/validate-options";
 
-export type { AuthModuleOptions } from "./nestjs/interfaces/auth-module-options.interface";
+export type { AuthModuleOptions, AuthModuleAsyncOptions } from "./nestjs/interfaces/auth-module-options.interface";
 
 // ─── Events ─────────────────────────────────────────────────
 export {
@@ -79,8 +95,9 @@ export {
 // ─── Infrastructure ─────────────────────────────────────────
 export { KeycloakAuthProvider } from "./infrastructure/keycloak/keycloak-auth.provider";
 export type { KeycloakConfig } from "./infrastructure/keycloak/keycloak-auth.provider";
-export { MailpitEmailSender } from "./infrastructure/email/mailpit-email.sender";
+export { MailpitEmailSender, MailpitEmailSender as SmtpEmailSender } from "./infrastructure/email/mailpit-email.sender";
 export type { EmailConfig } from "./infrastructure/email/mailpit-email.sender";
 export { JwtTokenService } from "./infrastructure/jwt/jwt-token.service";
 export type { JwtConfig } from "./infrastructure/jwt/jwt-token.service";
 export { InMemoryTokenStore } from "./infrastructure/storage/in-memory-token.store";
+export { hashToken } from "./infrastructure/storage/token-hash";

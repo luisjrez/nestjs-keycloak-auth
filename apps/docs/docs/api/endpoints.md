@@ -63,20 +63,59 @@ Authenticate with email and password.
 
 Sets httpOnly cookie `refreshToken`.
 
-**Errors:** `401 INVALID_CREDENTIALS`, `403 2FA_REQUIRED`
+If the user has TOTP 2FA enabled, **no tokens are issued**. Instead the response
+is a challenge and the client must call [`POST /auth/2fa/complete`](#post-auth2facomplete):
+
+```json
+{
+  "twoFactorRequired": true,
+  "preAuthToken": "one-time-pre-auth-token",
+  "expiresIn": 300
+}
+```
+
+**Errors:** `401 INVALID_CREDENTIALS`, `423 ACCOUNT_LOCKED`
+
+---
+
+## POST /auth/2fa/complete
+
+Second step of the 2FA login flow. Exchanges the single-use `preAuthToken` from
+the login response plus a valid TOTP code for real tokens.
+
+**Request:**
+```json
+{
+  "preAuthToken": "one-time-pre-auth-token",
+  "code": "123456"
+}
+```
+
+**Response** `200`:
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiJ9...",
+  "expiresIn": 900,
+  "user": { "id": "kc-user-id", "email": "user@example.com", "username": "johndoe" }
+}
+```
+
+Sets httpOnly cookie `refreshToken`.
+
+**Errors:** `401 TOKEN_INVALID` (unknown/used token), `401 TOKEN_EXPIRED`, `401 2FA_INVALID`
 
 ---
 
 ## POST /auth/refresh
 
-Refresh the access token using the refresh token from the cookie, or from the body.
+Rotate the access + refresh tokens. The refresh token is read from the httpOnly
+`refreshToken` cookie set at login — it is never accepted from the request body.
 
-**Request:** (use cookie sent by login)
-```json
-{
-  "refreshToken": "optional-refresh-token-from-body"
-}
-```
+Refresh-token **rotation with reuse detection** is enforced: each refresh token
+is single-use. Presenting a token that was already rotated revokes every session
+for that user and returns `401 TOKEN_REUSE_DETECTED`.
+
+**Request:** no body — send the cookie from login.
 
 **Response** `200`:
 ```json
@@ -86,7 +125,7 @@ Refresh the access token using the refresh token from the cookie, or from the bo
 }
 ```
 
-**Errors:** `401 TOKEN_EXPIRED`, `401 TOKEN_INVALID`
+**Errors:** `401` (missing cookie), `401 TOKEN_INVALID`, `401 TOKEN_EXPIRED`, `401 TOKEN_REUSE_DETECTED`
 
 ---
 
@@ -215,7 +254,9 @@ Enable TOTP 2FA for the authenticated user.
 
 ## POST /auth/2fa/verify
 
-Verify a TOTP code to complete 2FA enrollment.
+Verify a TOTP code to confirm 2FA enrollment. Once enrolled, subsequent logins
+require the two-step flow ([`/auth/login`](#post-authlogin) →
+[`/auth/2fa/complete`](#post-auth2facomplete)).
 
 **Headers:** `Authorization: Bearer <accessToken>`
 
@@ -234,6 +275,30 @@ Verify a TOTP code to complete 2FA enrollment.
 ```
 
 **Errors:** `401 2FA_INVALID`
+
+---
+
+## GET /auth/health
+
+Liveness probe. Present unless `healthCheck.enabled` is `false` (then `404`).
+
+**Response** `200`:
+```json
+{ "status": "ok", "timestamp": "2026-07-03T..." }
+```
+
+---
+
+## GET /auth/csrf
+
+Issue a CSRF token (only meaningful when `csrf.enabled` is `true`). Sets a
+non-httpOnly `csrf-token` cookie and returns the same value to echo back in the
+`x-csrf-token` header on mutating requests.
+
+**Response** `200`:
+```json
+{ "csrfToken": "3f1c…" }
+```
 
 ---
 

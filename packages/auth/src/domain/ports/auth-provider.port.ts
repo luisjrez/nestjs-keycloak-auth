@@ -4,6 +4,11 @@ export interface RegisterRequest {
   email: string;
   username: string;
   password: string;
+  /**
+   * Whether the account starts with a verified email (default: true).
+   * Set to false when the consumer enables `requireEmailVerification`.
+   */
+  emailVerified?: boolean;
 }
 
 export interface AuthenticateRequest {
@@ -26,6 +31,10 @@ export interface RefreshTokenResponse {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+}
+
+export interface IssueTokensResponse extends RefreshTokenResponse {
+  sub: string;
 }
 
 export interface InitiatePasswordResetRequest {
@@ -56,7 +65,7 @@ export type User = UserEntity;
 export interface IAuthProvider {
   register(req: RegisterRequest): Promise<User>;
   authenticate(req: AuthenticateRequest): Promise<AuthenticateResponse>;
-  refreshToken(req: RefreshTokenRequest): Promise<RefreshTokenResponse>;
+  refreshToken(req: RefreshTokenRequest): Promise<IssueTokensResponse>;
   logout(refreshToken: string): Promise<void>;
   initiatePasswordReset(req: InitiatePasswordResetRequest): Promise<void>;
   completePasswordReset(req: CompletePasswordResetRequest): Promise<void>;
@@ -67,5 +76,5 @@ export interface IAuthProvider {
   disable2FA(userId: string): Promise<void>;
   sendVerifyEmail(userId: string): Promise<void>;
   verifyEmail(token: string): Promise<void>;
-  issueTokens(userId: string): Promise<RefreshTokenResponse>;
+  issueTokens(userId: string): Promise<IssueTokensResponse>;
 }

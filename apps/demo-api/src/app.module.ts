@@ -5,6 +5,20 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { PrismaService } from "./prisma/prisma.service";
 import { PrismaTokenStore } from "./prisma/prisma-token.store";
 
+/**
+ * Reads a required secret from the environment. Outside production a dev
+ * fallback is allowed; in production a missing secret aborts startup so
+ * the app never signs tokens with a publicly known value.
+ */
+function requireSecret(name: string, devFallback: string): string {
+  const value = process.env[name];
+  if (value) return value;
+  if (process.env["NODE_ENV"] === "production") {
+    throw new Error(`Missing required environment variable ${name}`);
+  }
+  return devFallback;
+}
+
 @Module({
   controllers: [AppController],
   imports: [
@@ -12,7 +26,6 @@ import { PrismaTokenStore } from "./prisma/prisma-token.store";
 
     // ─── Auth Module ──────────────────────────────────────────
     // This is how consumers wire the auth package into their NestJS app.
-    // Full config will be added once domain & infrastructure layers are built.
     AuthModule.forRootAsync({
       imports: [PrismaModule],
       inject: [PrismaService],
@@ -20,11 +33,11 @@ import { PrismaTokenStore } from "./prisma/prisma-token.store";
         keycloakConfigPath: process.env["KEYCLOAK_CONFIG_PATH"] ?? "./keycloak-realm.json",
         jwt: {
           accessToken: {
-            secret: process.env["ACCESS_TOKEN_SECRET"] ?? "dev-access-secret-change-me",
+            secret: requireSecret("ACCESS_TOKEN_SECRET", "dev-only-access-token-secret-32-chars!!"),
             expiresIn: "15m",
           },
           refreshToken: {
-            secret: process.env["REFRESH_TOKEN_SECRET"] ?? "dev-refresh-secret-change-me",
+            secret: requireSecret("REFRESH_TOKEN_SECRET", "dev-only-refresh-token-secret-32-chars!"),
             expiresIn: "7d",
           },
         },
@@ -33,11 +46,22 @@ import { PrismaTokenStore } from "./prisma/prisma-token.store";
           transport: {
             host: process.env["SMTP_HOST"] ?? "localhost",
             port: Number(process.env["SMTP_PORT"] ?? "1025"),
+            ignoreTLS: true,
           },
         },
         tokenStore: new PrismaTokenStore(prisma),
         baseUrl: process.env["APP_URL"] ?? "http://localhost:3000",
         cookieSecure: process.env["NODE_ENV"] === "production",
+        // Allow E2E/load environments to turn rate limiting off.
+        ...(process.env["RATE_LIMIT_DISABLED"] === "1" && {
+          rateLimit: { enabled: false },
+        }),
+        // Uncomment to enforce CSRF double-submit validation on all
+        // mutating endpoints (clients must call GET /auth/csrf first):
+        // csrf: { enabled: true },
+        // Uncomment to require email verification before first login
+        // (needs SMTP configured in the Keycloak realm):
+        // requireEmailVerification: true,
       }),
     }),
   ],

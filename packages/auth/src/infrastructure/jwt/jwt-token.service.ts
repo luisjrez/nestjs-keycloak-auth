@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { TokenExpiredError, TokenInvalidError } from "../../domain/errors/auth-errors";
+import { parseDurationSeconds } from "../../domain/utils/duration";
 
 export interface JwtConfig {
   accessToken: {
@@ -18,8 +19,15 @@ export interface TokenPayload extends JWTPayload {
   username: string;
 }
 
+type TokenType = "access" | "refresh";
+
 export class JwtTokenService {
-  constructor(private readonly config: JwtConfig) {}
+  constructor(private readonly config: JwtConfig) {
+    // Fail at startup on malformed durations instead of silently falling
+    // back to a default at sign time.
+    parseDurationSeconds(config.accessToken.expiresIn);
+    parseDurationSeconds(config.refreshToken.expiresIn);
+  }
 
   private get accessSecret(): Uint8Array {
     return new TextEncoder().encode(this.config.accessToken.secret);
@@ -29,62 +37,79 @@ export class JwtTokenService {
     return new TextEncoder().encode(this.config.refreshToken.secret);
   }
 
-  private parseExpiresIn(value: string): number {
-    const match = value.match(/^(\d+)([smhd])$/);
-    if (!match) return 900;
-    const num = Number.parseInt(match[1]!, 10);
-    switch (match[2]) {
-      case "s": return num;
-      case "m": return num * 60;
-      case "h": return num * 3600;
-      case "d": return num * 86400;
-      default: return 900;
+  private async sign(
+    payload: TokenPayload,
+    type: TokenType,
+    secret: Uint8Array,
+    expiresIn: string,
+  ): Promise<string> {
+    return new SignJWT({ ...payload, typ: type })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject(payload.sub)
+      .setIssuedAt()
+      .setExpirationTime(expiresIn)
+      .sign(secret);
+  }
+
+  private async verify(
+    token: string,
+    type: TokenType,
+    secret: Uint8Array,
+    expiredMessage: string,
+    invalidMessage: string,
+  ): Promise<TokenPayload> {
+    let payload: JWTPayload;
+    try {
+      ({ payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] }));
+    } catch (err) {
+      if (err instanceof Error && err.name === "JWTExpired") {
+        throw new TokenExpiredError(expiredMessage);
+      }
+      throw new TokenInvalidError(invalidMessage);
     }
+
+    // The `typ` claim stops an access token from being replayed as a
+    // refresh token (or vice versa) if both secrets are configured equal.
+    if (payload["typ"] !== type || typeof payload.sub !== "string" || !payload.sub) {
+      throw new TokenInvalidError(invalidMessage);
+    }
+
+    return payload as TokenPayload;
   }
 
   async signAccessToken(payload: TokenPayload): Promise<string> {
-    return new SignJWT({ ...payload })
-      .setProtectedHeader({ alg: "HS256" })
-      .setSubject(payload.sub)
-      .setIssuedAt()
-      .setExpirationTime(this.config.accessToken.expiresIn)
-      .sign(this.accessSecret);
+    return this.sign(payload, "access", this.accessSecret, this.config.accessToken.expiresIn);
   }
 
   async signRefreshToken(payload: TokenPayload): Promise<string> {
-    return new SignJWT({ ...payload })
-      .setProtectedHeader({ alg: "HS256" })
-      .setSubject(payload.sub)
-      .setIssuedAt()
-      .setExpirationTime(this.config.refreshToken.expiresIn)
-      .sign(this.refreshSecret);
+    return this.sign(payload, "refresh", this.refreshSecret, this.config.refreshToken.expiresIn);
   }
 
   async verifyAccessToken(token: string): Promise<TokenPayload> {
-    try {
-      const { payload } = await jwtVerify(token, this.accessSecret);
-      return payload as unknown as TokenPayload;
-    } catch (err) {
-      if (err instanceof Error && err.name === "JWTExpired") {
-        throw new TokenExpiredError("Access token has expired");
-      }
-      throw new TokenInvalidError("Invalid access token");
-    }
+    return this.verify(
+      token,
+      "access",
+      this.accessSecret,
+      "Access token has expired",
+      "Invalid access token",
+    );
   }
 
   async verifyRefreshToken(token: string): Promise<TokenPayload> {
-    try {
-      const { payload } = await jwtVerify(token, this.refreshSecret);
-      return payload as unknown as TokenPayload;
-    } catch (err) {
-      if (err instanceof Error && err.name === "JWTExpired") {
-        throw new TokenExpiredError("Refresh token has expired");
-      }
-      throw new TokenInvalidError("Invalid refresh token");
-    }
+    return this.verify(
+      token,
+      "refresh",
+      this.refreshSecret,
+      "Refresh token has expired",
+      "Invalid refresh token",
+    );
   }
 
   getAccessTokenExpiresIn(): number {
-    return this.parseExpiresIn(this.config.accessToken.expiresIn);
+    return parseDurationSeconds(this.config.accessToken.expiresIn);
+  }
+
+  getRefreshTokenExpiresIn(): number {
+    return parseDurationSeconds(this.config.refreshToken.expiresIn);
   }
 }

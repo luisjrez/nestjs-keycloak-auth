@@ -17,12 +17,13 @@ un par de opciones, y ya tiene 13 endpoints de auth funcionando.
 
 - Entities: `User`, `TokenPair`
 - Value objects: `Email`, `Password`
-- Ports: `IAuthProvider`, `IEmailSender`, `ITokenStore`
-- 16 errores tipados (`DomainError` → HTTP status)
+- Ports: `IAuthProvider`, `IEmailSender`, `IEmailRenderer`, `ITokenStore`, `ILogger`
+- 19 errores tipados (`DomainError` → HTTP status)
+- Utilidades: `parseDurationSeconds` / `parseDurationMs` (lanzan en formato inválido)
 
-### Application (10 use cases)
+### Application (11 use cases)
 
-- `RegisterUseCase`, `LoginUseCase`, `RefreshTokenUseCase`
+- `RegisterUseCase`, `LoginUseCase`, `Complete2FALoginUseCase`, `RefreshTokenUseCase`
 - `ForgotPasswordUseCase`, `ResetPasswordUseCase`
 - `SendMagicLinkUseCase`, `VerifyMagicLinkUseCase`
 - `Setup2FAUseCase`, `Verify2FAUseCase`, `LogoutUseCase`
@@ -37,13 +38,16 @@ un par de opciones, y ya tiene 13 endpoints de auth funcionando.
 
 ### NestJS Module
 
-- `forRoot` / `forRootAsync`
-- `AuthController` — 13 endpoints con `@Throttle()` por endpoint
-- `JwtAuthGuard`, `OptionalAuthGuard`, `CsrfGuard`
-- `AuthExceptionFilter`, `AuthEventBus` (7 eventos)
-- Rate limiting dinámico (lee de `AuthModuleOptions.rateLimit`)
-- Account lockout con intentos máximos y duración configurable
-- Validación de config al startup (`validateOptions`)
+- `forRoot` / `forRootAsync` (comparten un builder privado; sin divergencias)
+- `AuthController` — 15 endpoints con `@Throttle()` por endpoint
+- `JwtAuthGuard`, `OptionalAuthGuard`, `CsrfGuard`, `GlobalAuthGuard`
+- `AuthExceptionFilter`, `AuthEventBus` (7 eventos, **emitidos** desde el controller)
+- Rate limiting integrado (lee de `AuthModuleOptions.rateLimit`)
+- Account lockout configurable (email normalizado, contadores con expiración)
+- CSRF opcional aplicado de verdad (`csrf.enabled`, cookie/header configurables)
+- `requireEmailVerification` opcional; `healthCheck.enabled`; `globals` para opt-out
+- Validación estricta de config al startup (`validateAuthModuleOptions`: secretos ≥32, distintos, duraciones válidas)
+- Tokens DI exportados (`AUTH_MODULE_OPTIONS`, `TOKEN_STORE`, `AUTH_PROVIDER`) + use cases inyectables
 
 ### CLI
 
@@ -51,16 +55,21 @@ un par de opciones, y ya tiene 13 endpoints de auth funcionando.
 
 ### Tests
 
-- 27 suites, 270 tests unitarios (Jest)
-- 1 suite E2E (16 tests contra Keycloak real + PostgreSQL + Mailpit en Docker)
+- 34 suites, 318 tests unitarios (Jest), coverage global ~87%
+- 1 suite E2E (19 tests contra Keycloak real + PostgreSQL + Mailpit en Docker)
 
 ### Seguridad
 
-- Refresh token rotation + reuse detection
-- CSRF doble-submit cookie con `CsrfGuard` (timing-safe comparison)
-- Helmet, SameSite=Strict, httpOnly cookies
-- Token hashing SHA-256
-- Password complexity (uppercase, lowercase, number, special)
+- Refresh token rotation + reuse detection **con consumo atómico** (funciona con `PrismaTokenStore`)
+- 2FA TOTP **aplicado en el login** (flujo de dos pasos con pre-auth token de un solo uso)
+- CSRF doble-submit cookie con `CsrfGuard` (timing-safe, registrado app-wide vía `csrf.enabled`)
+- Sin enumeración de usuarios en forgot-password / magic-link (respuesta 200 genérica)
+- Reset token de un solo uso + revocación de todas las sesiones tras el reset
+- JWT con `algorithms: ["HS256"]` + claim `typ` (access ≠ refresh)
+- Secretos JWT validados al startup; CLI genera secretos con `crypto.randomBytes`
+- Helmet, SameSite=Strict, httpOnly cookies; `cookieSecure` default true en producción
+- Token hashing SHA-256 (`hashToken` compartido, sin duplicación)
+- Password complexity (uppercase, lowercase, number, special) simétrica en register y reset
 
 ### Demo API
 
@@ -72,11 +81,17 @@ un par de opciones, y ya tiene 13 endpoints de auth funcionando.
 
 | Prioridad | Task | Detalle | Dependencias |
 |-----------|------|---------|--------------|
-| Alta | **npm publish CI** | Workflow GitHub Actions que corre `pnpm publish` cuando se pushea un tag `v*`. Necesita `NPM_TOKEN` en secrets. | Ninguna |
-| Alta | **E2E tests en CI funcionando** | El job `e2e` en `.github/workflows/ci.yml` existe pero hay que verificar que pasa. Corre Keycloak + PostgreSQL + Mailpit en Docker. Usa `pnpm test:e2e`. | Docker en runner |
-| Media | **React Email templates reales** | `src/email-templates/` tiene archivos placeholder. Crear templates Welcome, ForgotPassword, MagicLink, VerifyEmail con `@react-email/components`. | Ninguna |
-| Media | **Docs: recipes que falten** | `apps/docs/` tiene docs parciales. Completar guías: custom token store, custom email sender, rate limiting avanzado. | Ninguna |
-| Baja | **Redis token store** | Implementar `ITokenStore` con Redis (ioredis) para producción. | `ioredis` |
+| **Único pendiente** | **npm publish CI** | Workflow GitHub Actions que corre `pnpm publish` cuando se pushea un tag `v*`. Necesita `NPM_TOKEN` en secrets. Es el último paso deliberado. | `NPM_TOKEN` |
+
+> El resto del backlog previo de v1 está **hecho**: hardening de seguridad (rotación/reuso con consumo atómico, 2FA real, CSRF aplicado, anti-enumeración, reset de un solo uso), refactor de `AuthModule`, validación de config al startup, `package.json` listo para publicar (deps/peers de NestJS separadas, `^10 || ^11`), CI arreglado (`prisma generate` en el job quality + conflicto de puerto del job e2e resuelto), email templates react-email reales, docs actualizadas. 318 tests verdes, typecheck y build limpios.
+
+### Nice-to-have (post-v1)
+
+| Prioridad | Task | Detalle |
+|-----------|------|---------|
+| Baja | **Redis token store** | Implementar `ITokenStore` con Redis (ioredis) para producción. |
+| Baja | **Redis throttler storage** | Rate limiting compartido entre réplicas + `trust proxy`. |
+| Baja | **Cifrado del secreto TOTP en reposo** | Hoy el `totpSecret` se guarda en claro en `userData`; cifrar con AES-GCM. |
 
 ---
 

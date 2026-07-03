@@ -1,3 +1,4 @@
+import type { FactoryProvider, ModuleMetadata } from "@nestjs/common";
 import type { JwtConfig } from "../../infrastructure/jwt/jwt-token.service";
 import type { KeycloakConfig } from "../../infrastructure/keycloak/keycloak-auth.provider";
 import type { EmailConfig } from "../../infrastructure/email/mailpit-email.sender";
@@ -22,15 +23,73 @@ export interface AuthModuleOptions {
   /** Base URL for constructing email links (default: https://example.com) */
   baseUrl?: string;
 
-  /** Whether to use secure cookies for refreshToken (default: false for dev, true in production) */
+  /**
+   * Whether to use secure cookies for refreshToken.
+   * Default: true when NODE_ENV === "production", false otherwise.
+   */
   cookieSecure?: boolean;
 
   /** Cookie domain for the refreshToken cookie (optional) */
   cookieDomain?: string;
+
+  /**
+   * When true, new accounts start with an unverified email: registration
+   * sends a verification email (requires SMTP configured in the Keycloak
+   * realm) and login fails with EMAIL_NOT_VERIFIED until verified.
+   * Default: false.
+   */
+  requireEmailVerification?: boolean;
+
+  /** Rate limiting configuration (requires @nestjs/throttler) */
+  rateLimit?: {
+    /** Turn rate limiting on/off entirely (default: true). Set false for E2E/load envs. */
+    enabled?: boolean;
+    /** Requests per TTL window for sensitive endpoints (default: 10) */
+    limit?: number;
+    /** TTL window in seconds (default: 60) */
+    ttl?: number;
+  };
+
+  /** Health check configuration */
+  healthCheck?: {
+    /** Enable GET /auth/health endpoint (default: true) */
+    enabled?: boolean;
+  };
+
+  /** Account lockout configuration */
+  lockout?: {
+    /** Max failed attempts before lockout (default: 5) */
+    maxAttempts?: number;
+    /** Lockout duration in ms (default: 15 min) */
+    duration?: number;
+  };
+
+  /** CSRF protection (double-submit cookie via GET /auth/csrf) */
+  csrf?: {
+    /**
+     * Enforce CSRF validation on all mutating requests (default: false).
+     * When enabled, clients must fetch GET /auth/csrf and echo the token
+     * back in the configured header.
+     */
+    enabled?: boolean;
+    /** Name of the CSRF cookie (default: csrf-token) */
+    cookieName?: string;
+    /** Name of the CSRF header (default: x-csrf-token) */
+    headerName?: string;
+  };
+
+  /** Opt out of the app-wide providers this module registers. */
+  globals?: {
+    /** Register the JWT guard as a global APP_GUARD (default: true) */
+    authGuard?: boolean;
+    /** Register a global ValidationPipe with whitelist (default: true) */
+    validationPipe?: boolean;
+  };
 }
 
 export interface AuthModuleAsyncOptions {
-  imports?: any[];
-  inject?: any[];
+  imports?: ModuleMetadata["imports"];
+  inject?: FactoryProvider["inject"];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mirrors NestJS FactoryProvider.useFactory
   useFactory: (...args: any[]) => Promise<AuthModuleOptions> | AuthModuleOptions;
 }

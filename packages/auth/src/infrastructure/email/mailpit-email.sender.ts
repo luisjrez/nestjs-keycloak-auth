@@ -8,6 +8,8 @@ export interface EmailConfig {
     port: number;
     user?: string;
     pass?: string;
+    secure?: boolean;
+    ignoreTLS?: boolean;
   };
 }
 
@@ -22,7 +24,8 @@ export class MailpitEmailSender implements IEmailSender {
         config.transport.user && config.transport.pass
           ? { user: config.transport.user, pass: config.transport.pass }
           : undefined,
-      ignoreTLS: true,
+      secure: config.transport.secure ?? config.transport.port === 465,
+      ignoreTLS: config.transport.ignoreTLS ?? false,
     });
   }
 

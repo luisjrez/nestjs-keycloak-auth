@@ -80,12 +80,25 @@ describe("ForgotPasswordUseCase", () => {
     expect(result.message).toContain("Password reset email sent");
   });
 
-  it("should throw when user does not exist", async () => {
-    mockAuthProvider.getUserByEmail.mockRejectedValue(new Error("User not found"));
+  it("should return a generic message and send no email when the user does not exist", async () => {
+    mockAuthProvider.getUserByEmail.mockRejectedValue(
+      new UserNotFoundError("No user"),
+    );
+
+    const result = await useCase.execute({ email: "nonexistent@example.com" });
+
+    // No user-enumeration: identical message to the success path.
+    expect(result.message).toContain("Password reset email sent");
+    expect(result.userId).toBeUndefined();
+    expect(mockEmailSender.send).not.toHaveBeenCalled();
+  });
+
+  it("should propagate unexpected provider errors", async () => {
+    mockAuthProvider.getUserByEmail.mockRejectedValue(new Error("Keycloak down"));
 
     await expect(
-      useCase.execute({ email: "nonexistent@example.com" }),
-    ).rejects.toThrow(UserNotFoundError);
+      useCase.execute({ email: "test@example.com" }),
+    ).rejects.toThrow("Keycloak down");
   });
 
   it("should store reset token with 1 hour expiry", async () => {

@@ -2,11 +2,15 @@ import { Test, type TestingModule } from "@nestjs/testing";
 import { INestApplication } from "@nestjs/common";
 import request from "supertest";
 import cookieParser from "cookie-parser";
+import { ThrottlerModule } from "@nestjs/throttler";
 import { AuthController } from "../../../src/nestjs/controllers/auth.controller";
 import { JwtAuthGuard } from "../../../src/nestjs/guards/jwt-auth.guard";
 import { AuthExceptionFilter } from "../../../src/nestjs/filters/auth-exception.filter";
+import { AuthEventBus } from "../../../src/nestjs/events/auth-event-bus";
+import { AUTH_MODULE_OPTIONS } from "../../../src/nestjs/auth.constants";
 import { RegisterUseCase } from "../../../src/application/use-cases/register.use-case";
 import { LoginUseCase } from "../../../src/application/use-cases/login.use-case";
+import { Complete2FALoginUseCase } from "../../../src/application/use-cases/complete-2fa-login.use-case";
 import { RefreshTokenUseCase } from "../../../src/application/use-cases/refresh-token.use-case";
 import { ForgotPasswordUseCase } from "../../../src/application/use-cases/forgot-password.use-case";
 import { ResetPasswordUseCase } from "../../../src/application/use-cases/reset-password.use-case";
@@ -25,6 +29,7 @@ describe("AuthController", () => {
 
   const mockRegister = { execute: jest.fn() };
   const mockLogin = { execute: jest.fn() };
+  const mockComplete2FA = { execute: jest.fn() };
   const mockRefresh = { execute: jest.fn() };
   const mockForgotPassword = { execute: jest.fn() };
   const mockResetPassword = { execute: jest.fn() };
@@ -33,13 +38,16 @@ describe("AuthController", () => {
   const mockSetup2FA = { execute: jest.fn() };
   const mockVerify2FA = { execute: jest.fn() };
   const mockLogout = { execute: jest.fn() };
+  const eventBus = new AuthEventBus();
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
+      imports: [ThrottlerModule.forRoot([{ limit: 10, ttl: 60 }])],
       controllers: [AuthController],
       providers: [
         { provide: RegisterUseCase, useValue: mockRegister },
         { provide: LoginUseCase, useValue: mockLogin },
+        { provide: Complete2FALoginUseCase, useValue: mockComplete2FA },
         { provide: RefreshTokenUseCase, useValue: mockRefresh },
         { provide: ForgotPasswordUseCase, useValue: mockForgotPassword },
         { provide: ResetPasswordUseCase, useValue: mockResetPassword },
@@ -48,9 +56,15 @@ describe("AuthController", () => {
         { provide: Setup2FAUseCase, useValue: mockSetup2FA },
         { provide: Verify2FAUseCase, useValue: mockVerify2FA },
         { provide: LogoutUseCase, useValue: mockLogout },
+        { provide: AuthEventBus, useValue: eventBus },
         {
-          provide: "AUTH_MODULE_OPTIONS",
-          useValue: { jwt: { secret: "test-secret", expiresIn: 900 } },
+          provide: AUTH_MODULE_OPTIONS,
+          useValue: {
+            jwt: {
+              accessToken: { secret: "a".repeat(32), expiresIn: "15m" },
+              refreshToken: { secret: "b".repeat(32), expiresIn: "7d" },
+            },
+          },
         },
       ],
     })
@@ -80,14 +94,17 @@ describe("AuthController", () => {
 
   describe("POST /auth/register", () => {
     it("should register a user", async () => {
-      mockRegister.execute.mockResolvedValue({ id: "u-1", email: "test@test.com" });
+      mockRegister.execute.mockResolvedValue({
+        user: { id: "u-1", email: "test@test.com", username: "testuser" },
+        message: "Registration successful.",
+      });
 
       const res = await request(app.getHttpServer())
         .post("/auth/register")
-        .send({ email: "test@test.com", username: "testuser", password: "Secure123" })
+        .send({ email: "test@test.com", username: "testuser", password: "Secure123!" })
         .expect(201);
 
-      expect(res.body.email).toBe("test@test.com");
+      expect(res.body.user.email).toBe("test@test.com");
     });
 
     it("should handle domain errors", async () => {
@@ -95,7 +112,7 @@ describe("AuthController", () => {
 
       const res = await request(app.getHttpServer())
         .post("/auth/register")
-        .send({ email: "dup@test.com", username: "dup", password: "Secure123" })
+        .send({ email: "dup@test.com", username: "dup", password: "Secure123!" })
         .expect(409);
 
       expect(res.body.error).toBe("EMAIL_EXISTS");
@@ -110,17 +127,35 @@ describe("AuthController", () => {
       user: { id: "u-1", email: "test@test.com", username: "testuser" },
     };
 
-    it("should authenticate and set refresh cookie", async () => {
+    it("should authenticate and set refresh cookie without exposing the refresh token in the body", async () => {
       mockLogin.execute.mockResolvedValue(loginResponse);
 
       const res = await request(app.getHttpServer())
         .post("/auth/login")
-        .send({ email: "test@test.com", password: "Secure123" })
+        .send({ email: "test@test.com", password: "Secure123!" })
         .expect(200);
 
       expect(res.body.accessToken).toBe("at-123");
       expect(res.body.refreshToken).toBeUndefined();
       expect(res.headers["set-cookie"]).toBeDefined();
+    });
+
+    it("should return a 2FA challenge without setting a cookie", async () => {
+      mockLogin.execute.mockResolvedValue({
+        twoFactorRequired: true,
+        preAuthToken: "pre-auth-xyz",
+        expiresIn: 300,
+      });
+
+      const res = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ email: "2fa@test.com", password: "Secure123!" })
+        .expect(200);
+
+      expect(res.body.twoFactorRequired).toBe(true);
+      expect(res.body.preAuthToken).toBe("pre-auth-xyz");
+      expect(res.body.accessToken).toBeUndefined();
+      expect(res.headers["set-cookie"]).toBeUndefined();
     });
 
     it("should handle invalid credentials", async () => {
@@ -130,6 +165,26 @@ describe("AuthController", () => {
         .post("/auth/login")
         .send({ email: "bad@test.com", password: "wrong" })
         .expect(401);
+    });
+  });
+
+  describe("POST /auth/2fa/complete", () => {
+    it("should exchange the pre-auth token for real tokens and set a cookie", async () => {
+      mockComplete2FA.execute.mockResolvedValue({
+        accessToken: "at-2fa",
+        refreshToken: "rt-2fa",
+        expiresIn: 900,
+        user: { id: "u-1", email: "test@test.com", username: "testuser" },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post("/auth/2fa/complete")
+        .send({ preAuthToken: "pre-auth-xyz", code: "123456" })
+        .expect(200);
+
+      expect(res.body.accessToken).toBe("at-2fa");
+      expect(res.body.refreshToken).toBeUndefined();
+      expect(res.headers["set-cookie"]).toBeDefined();
     });
   });
 
@@ -145,14 +200,12 @@ describe("AuthController", () => {
       expect(mockRefresh.execute).toHaveBeenCalledWith("rt-value");
     });
 
-    it("should pass empty string when no cookie", async () => {
-      mockRefresh.execute.mockResolvedValue({ accessToken: "new-at", refreshToken: "new-rt", expiresIn: 900 });
-
+    it("should return 401 when no cookie is present", async () => {
       await request(app.getHttpServer())
         .post("/auth/refresh")
-        .expect(200);
+        .expect(401);
 
-      expect(mockRefresh.execute).toHaveBeenCalledWith("");
+      expect(mockRefresh.execute).not.toHaveBeenCalled();
     });
   });
 
@@ -169,8 +222,7 @@ describe("AuthController", () => {
     });
 
     it("should still clear cookie when no refresh token", async () => {
-      const res = await request(app.getHttpServer())
-        .post("/auth/logout");
+      const res = await request(app.getHttpServer()).post("/auth/logout");
 
       expect(mockLogout.execute).not.toHaveBeenCalled();
       expect(res.headers["set-cookie"]).toBeDefined();
@@ -179,24 +231,24 @@ describe("AuthController", () => {
 
   describe("POST /auth/forgot-password", () => {
     it("should send reset email", async () => {
-      mockForgotPassword.execute.mockResolvedValue({ message: "Email sent if user exists" });
+      mockForgotPassword.execute.mockResolvedValue({ message: "sent" });
 
       const res = await request(app.getHttpServer())
         .post("/auth/forgot-password")
         .send({ email: "test@test.com" })
         .expect(200);
 
-      expect(res.body.message).toContain("Email sent");
+      expect(res.body.message).toContain("reset link has been sent");
     });
   });
 
   describe("POST /auth/reset-password", () => {
     it("should reset password", async () => {
-      mockResetPassword.execute.mockResolvedValue({ message: "Password reset successfully" });
+      mockResetPassword.execute.mockResolvedValue({ message: "ok", userId: "u-1" });
 
       const res = await request(app.getHttpServer())
         .post("/auth/reset-password")
-        .send({ token: "reset-token", newPassword: "NewPass123" })
+        .send({ token: "reset-token", newPassword: "NewPass123!" })
         .expect(200);
 
       expect(res.body.message).toContain("reset successfully");
@@ -205,22 +257,24 @@ describe("AuthController", () => {
 
   describe("POST /auth/magic-link", () => {
     it("should send magic link", async () => {
-      mockSendMagicLink.execute.mockResolvedValue({ message: "Magic link sent" });
+      mockSendMagicLink.execute.mockResolvedValue({ message: "sent", userId: "u-1" });
 
       const res = await request(app.getHttpServer())
         .post("/auth/magic-link")
         .send({ email: "test@test.com" })
         .expect(200);
 
-      expect(res.body.message).toContain("Magic link sent");
+      expect(res.body.message).toContain("magic link has been sent");
     });
   });
 
   describe("POST /auth/magic-link/verify", () => {
-    const verifyResponse = { accessToken: "at-123", refreshToken: "rt-123", expiresIn: 900 };
-
     it("should verify magic link and set cookie", async () => {
-      mockVerifyMagicLink.execute.mockResolvedValue(verifyResponse);
+      mockVerifyMagicLink.execute.mockResolvedValue({
+        accessToken: "at-123",
+        refreshToken: "rt-123",
+        expiresIn: 900,
+      });
 
       const res = await request(app.getHttpServer())
         .post("/auth/magic-link/verify")
@@ -261,11 +315,9 @@ describe("AuthController", () => {
 
   describe("GET /auth/me", () => {
     it("should return current user from JWT", async () => {
-      const res = await request(app.getHttpServer())
-        .get("/auth/me")
-        .expect(200);
+      const res = await request(app.getHttpServer()).get("/auth/me").expect(200);
 
-      expect(res.body).toBeDefined();
+      expect(res.body).toMatchObject({ sub: "u-1", email: "test@test.com" });
     });
   });
 });

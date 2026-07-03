@@ -1,10 +1,14 @@
 import type { IAuthProvider } from "../../domain/ports/auth-provider.port";
-import type { Setup2FADto } from "../dtos/auth.dtos";
+
+export interface Setup2FARequestDto {
+  /** Resolved from the authenticated user by the controller. */
+  userId: string;
+}
 
 export class Setup2FAUseCase {
   constructor(private readonly authProvider: IAuthProvider) {}
 
-  async execute(dto: Setup2FADto): Promise<{
+  async execute(dto: Setup2FARequestDto): Promise<{
     secret: string;
     qrCodeUrl: string;
   }> {

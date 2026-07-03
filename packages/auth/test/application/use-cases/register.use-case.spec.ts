@@ -49,12 +49,46 @@ describe("RegisterUseCase", () => {
       email: "test@example.com",
       username: "testuser",
       password: "SecurePass123@",
+      emailVerified: true,
     } satisfies RegisterRequest);
 
     expect(result).toEqual({
       user: mockUser,
       message: expect.stringContaining("successful"),
     });
+  });
+
+  it("should register with emailVerified false and send a verify email when required", async () => {
+    const mockUser: User = {
+      id: "kc-user-1",
+      email: "verify@example.com",
+      username: "verifyuser",
+      emailVerified: false,
+      enabled: true,
+      createdAt: new Date(),
+    };
+
+    mockAuthProvider.register.mockResolvedValue(mockUser);
+    mockAuthProvider.sendVerifyEmail.mockResolvedValue(undefined);
+
+    const verifyUseCase = new RegisterUseCase(mockAuthProvider, {
+      requireEmailVerification: true,
+    });
+
+    const result = await verifyUseCase.execute({
+      email: "verify@example.com",
+      username: "verifyuser",
+      password: "SecurePass123@",
+    });
+
+    expect(mockAuthProvider.register).toHaveBeenCalledWith({
+      email: "verify@example.com",
+      username: "verifyuser",
+      password: "SecurePass123@",
+      emailVerified: false,
+    } satisfies RegisterRequest);
+    expect(mockAuthProvider.sendVerifyEmail).toHaveBeenCalledWith("kc-user-1");
+    expect(result.message).toContain("verify");
   });
 
   it("should throw when email is invalid", async () => {

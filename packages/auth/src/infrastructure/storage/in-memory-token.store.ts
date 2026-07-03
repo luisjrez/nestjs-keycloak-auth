@@ -1,23 +1,19 @@
-import { createHash } from "node:crypto";
 import type { ITokenStore, TokenRecord } from "../../domain/ports/token-store.port";
-
-function hash(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
+import { hashToken } from "./token-hash";
 
 export class InMemoryTokenStore implements ITokenStore {
   private tokens: Map<string, TokenRecord> = new Map();
   private userData: Map<string, Map<string, string>> = new Map();
 
   async save(record: TokenRecord): Promise<void> {
-    this.tokens.set(record.id, { ...record, token: hash(record.token) });
+    this.tokens.set(record.id, { ...record, token: hashToken(record.token) });
   }
 
   async findByToken(
     token: string,
     type: TokenRecord["type"],
   ): Promise<TokenRecord | null> {
-    const hashed = hash(token);
+    const hashed = hashToken(token);
     for (const record of this.tokens.values()) {
       if (record.token === hashed && record.type === type) {
         return record;
@@ -26,17 +22,27 @@ export class InMemoryTokenStore implements ITokenStore {
     return null;
   }
 
-  async markConsumed(id: string): Promise<void> {
+  async markConsumed(id: string): Promise<boolean> {
     const record = this.tokens.get(id);
-    if (record) {
-      this.tokens.set(id, { ...record, consumedAt: new Date() });
+    if (!record || record.consumedAt) {
+      return false;
     }
+    this.tokens.set(id, { ...record, consumedAt: new Date() });
+    return true;
   }
 
   async deleteExpired(): Promise<void> {
     const now = new Date();
     for (const [id, record] of this.tokens.entries()) {
       if (record.expiresAt < now) {
+        this.tokens.delete(id);
+      }
+    }
+  }
+
+  async deleteAllForUser(userId: string): Promise<void> {
+    for (const [id, record] of this.tokens.entries()) {
+      if (record.userId === userId) {
         this.tokens.delete(id);
       }
     }
