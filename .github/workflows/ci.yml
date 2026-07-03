@@ -97,14 +97,3 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker compose -f docker/docker-compose.yml down -v
-
-      - name: Push Prisma schema
-        run: pnpm --filter demo-api exec prisma db push --accept-data-loss --force-reset
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5434/auth_demo
-
-      - name: E2E tests
-        run: pnpm test:e2e
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5434/auth_demo
-          KEYCLOAK_SERVER_URL: http://localhost:8080
