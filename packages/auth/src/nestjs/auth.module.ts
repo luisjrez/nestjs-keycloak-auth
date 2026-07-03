@@ -24,13 +24,22 @@ import { OptionalAuthGuard } from "./guards/optional-auth.guard";
 import { CsrfGuard } from "./guards/csrf.guard";
 import { AuthExceptionFilter } from "./filters/auth-exception.filter";
 import { AuthEventBus } from "./events/auth-event-bus";
-import { AUTH_MODULE_OPTIONS, AUTH_PROVIDER, TOKEN_STORE } from "./auth.constants";
+import {
+  AUTH_MODULE_OPTIONS,
+  AUTH_PROVIDER,
+  EMAIL_RENDERER,
+  EMAIL_SENDER,
+  TOKEN_STORE,
+} from "./auth.constants";
 import { validateAuthModuleOptions } from "./validate-options";
+import { validateEmailRenderer } from "./validate-email-renderer";
 import { parseDurationMs } from "../domain/utils/duration";
 import type { ITokenStore } from "../domain/ports/token-store.port";
+import type { IEmailSender } from "../domain/ports/email-sender.port";
+import type { IEmailRenderer } from "../domain/ports/email-renderer.port";
 import { JwtTokenService } from "../infrastructure/jwt/jwt-token.service";
 import { KeycloakAuthProvider, loadKeycloakConfigFromPath } from "../infrastructure/keycloak/keycloak-auth.provider";
-import { MailpitEmailSender } from "../infrastructure/email/mailpit-email.sender";
+import { MailpitEmailSender, type EmailConfig } from "../infrastructure/email/mailpit-email.sender";
 import { ReactEmailRenderer } from "../infrastructure/email/react-email.renderer";
 
 import { RegisterUseCase } from "../application/use-cases/register.use-case";
@@ -109,9 +118,10 @@ export class AuthModule {
         AUTH_MODULE_OPTIONS,
         TOKEN_STORE,
         AUTH_PROVIDER,
+        EMAIL_SENDER,
+        EMAIL_RENDERER,
         AuthEventBus,
         JwtTokenService,
-        ReactEmailRenderer,
         JwtAuthGuard,
         OptionalAuthGuard,
         CsrfGuard,
@@ -176,13 +186,24 @@ export class AuthModule {
       },
       { provide: AUTH_PROVIDER, useExisting: KeycloakAuthProvider },
       {
-        provide: MailpitEmailSender,
+        provide: EMAIL_SENDER,
         inject: [AUTH_MODULE_OPTIONS],
-        useFactory: (opts: AuthModuleOptions) => new MailpitEmailSender(opts.email),
+        useFactory: (opts: AuthModuleOptions): IEmailSender =>
+          // A custom sender replaces SMTP entirely; otherwise use the default.
+          // `email` presence is guaranteed by validateAuthModuleOptions when no
+          // custom sender is supplied.
+          opts.emailSender ?? new MailpitEmailSender(opts.email as EmailConfig),
       },
       {
-        provide: ReactEmailRenderer,
-        useFactory: () => new ReactEmailRenderer(),
+        provide: EMAIL_RENDERER,
+        inject: [AUTH_MODULE_OPTIONS],
+        useFactory: async (opts: AuthModuleOptions): Promise<IEmailRenderer> => {
+          const renderer = opts.emailRenderer ?? new ReactEmailRenderer();
+          // Fail at startup if the renderer can't produce every template the
+          // package emits (covers both custom and default renderers).
+          await validateEmailRenderer(renderer);
+          return renderer;
+        },
       },
     ];
   }
@@ -247,12 +268,12 @@ export class AuthModule {
       },
       {
         provide: ForgotPasswordUseCase,
-        inject: [KeycloakAuthProvider, TOKEN_STORE, MailpitEmailSender, ReactEmailRenderer, AUTH_MODULE_OPTIONS],
+        inject: [KeycloakAuthProvider, TOKEN_STORE, EMAIL_SENDER, EMAIL_RENDERER, AUTH_MODULE_OPTIONS],
         useFactory: (
           auth: KeycloakAuthProvider,
           store: ITokenStore,
-          email: MailpitEmailSender,
-          renderer: ReactEmailRenderer,
+          email: IEmailSender,
+          renderer: IEmailRenderer,
           opts: AuthModuleOptions,
         ) => new ForgotPasswordUseCase(auth, store, email, renderer, opts.baseUrl),
       },
@@ -264,12 +285,12 @@ export class AuthModule {
       },
       {
         provide: SendMagicLinkUseCase,
-        inject: [KeycloakAuthProvider, TOKEN_STORE, MailpitEmailSender, ReactEmailRenderer, AUTH_MODULE_OPTIONS],
+        inject: [KeycloakAuthProvider, TOKEN_STORE, EMAIL_SENDER, EMAIL_RENDERER, AUTH_MODULE_OPTIONS],
         useFactory: (
           auth: KeycloakAuthProvider,
           store: ITokenStore,
-          email: MailpitEmailSender,
-          renderer: ReactEmailRenderer,
+          email: IEmailSender,
+          renderer: IEmailRenderer,
           opts: AuthModuleOptions,
         ) => new SendMagicLinkUseCase(auth, store, email, renderer, opts.baseUrl),
       },

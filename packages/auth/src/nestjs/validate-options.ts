@@ -47,8 +47,11 @@ export function validateAuthModuleOptions(options: AuthModuleOptions): AuthModul
     problems.push("tokenStore is required");
   }
 
-  if (!options.email?.from || !options.email?.transport?.host) {
-    problems.push("email.from and email.transport.host are required");
+  // The default SMTP sender needs `email`; a custom `emailSender` replaces it.
+  if (!options.emailSender && (!options.email?.from || !options.email?.transport?.host)) {
+    problems.push(
+      "email.from and email.transport.host are required (unless you provide a custom `emailSender`)",
+    );
   }
 
   if (options.baseUrl && !/^https?:\/\//.test(options.baseUrl)) {

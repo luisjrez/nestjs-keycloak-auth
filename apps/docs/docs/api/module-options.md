@@ -39,8 +39,14 @@ interface AuthModuleOptions {
   /** JWT signing configuration (secrets must be >= 32 chars and distinct) */
   jwt: JwtConfig;
 
-  /** Email sender configuration */
-  email: EmailConfig;
+  /** SMTP config for the default sender. Required unless you pass `emailSender`. */
+  email?: EmailConfig;
+
+  /** Custom email transport (Resend/SES/…). Replaces the SMTP sender. */
+  emailSender?: IEmailSender;
+
+  /** Custom email renderer (your own templates). Validated at startup. */
+  emailRenderer?: IEmailRenderer;
 
   /** Token store implementation (PrismaTokenStore, Redis, etc.) */
   tokenStore: ITokenStore;

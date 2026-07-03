@@ -5,6 +5,9 @@ import { KeycloakAuthProvider } from "../../src/infrastructure/keycloak/keycloak
 import { InMemoryTokenStore } from "../../src/infrastructure/storage/in-memory-token.store";
 import { AuthEventBus } from "../../src/nestjs/events/auth-event-bus";
 import { LoginUseCase } from "../../src/application/use-cases/login.use-case";
+import { EMAIL_RENDERER, EMAIL_SENDER } from "../../src/nestjs/auth.constants";
+import type { IEmailSender } from "../../src/domain/ports/email-sender.port";
+import type { IEmailRenderer, RenderedEmail } from "../../src/domain/ports/email-renderer.port";
 
 const validOptions = () => ({
   keycloak: {
@@ -78,6 +81,61 @@ describe("AuthModule", () => {
           ],
         }).compile(),
       ).rejects.toThrow(/keycloak.*required/i);
+    });
+  });
+
+  describe("pluggable email", () => {
+    const completeRenderer: IEmailRenderer = {
+      async render(): Promise<RenderedEmail> {
+        return { html: "<p>custom</p>", text: "custom", subject: "Custom subject" };
+      },
+    };
+
+    it("uses a custom emailRenderer when provided", async () => {
+      const module = await Test.createTestingModule({
+        imports: [AuthModule.forRoot({ ...validOptions(), emailRenderer: completeRenderer })],
+      }).compile();
+
+      expect(module.get<IEmailRenderer>(EMAIL_RENDERER)).toBe(completeRenderer);
+      await module.close();
+    });
+
+    it("uses a custom emailSender when provided", async () => {
+      const sender: IEmailSender = { send: async () => undefined };
+      const module = await Test.createTestingModule({
+        imports: [AuthModule.forRoot({ ...validOptions(), emailSender: sender })],
+      }).compile();
+
+      expect(module.get<IEmailSender>(EMAIL_SENDER)).toBe(sender);
+      await module.close();
+    });
+
+    it("allows omitting `email` when a custom emailSender is supplied", async () => {
+      const sender: IEmailSender = { send: async () => undefined };
+      const opts = validOptions();
+      delete (opts as { email?: unknown }).email;
+
+      const module = await Test.createTestingModule({
+        imports: [AuthModule.forRoot({ ...opts, emailSender: sender })],
+      }).compile();
+
+      expect(module.get<IEmailSender>(EMAIL_SENDER)).toBe(sender);
+      await module.close();
+    });
+
+    it("fails startup when a custom renderer cannot handle a template", async () => {
+      const brokenRenderer: IEmailRenderer = {
+        async render(name): Promise<RenderedEmail> {
+          if (name === "magic-link") throw new Error("nope");
+          return { html: "<p>x</p>", text: "x", subject: "S" };
+        },
+      };
+
+      await expect(
+        Test.createTestingModule({
+          imports: [AuthModule.forRoot({ ...validOptions(), emailRenderer: brokenRenderer })],
+        }).compile(),
+      ).rejects.toThrow(/magic-link/);
     });
   });
 });

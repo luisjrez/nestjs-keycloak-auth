@@ -77,7 +77,13 @@ export type { AuthenticatedUser } from "./nestjs/decorators/current-user.decorat
 export { Public } from "./nestjs/decorators/public.decorator";
 export { AuthExceptionFilter } from "./nestjs/filters/auth-exception.filter";
 export { AuthEventBus } from "./nestjs/events/auth-event-bus";
-export { AUTH_MODULE_OPTIONS, TOKEN_STORE, AUTH_PROVIDER } from "./nestjs/auth.constants";
+export {
+  AUTH_MODULE_OPTIONS,
+  TOKEN_STORE,
+  AUTH_PROVIDER,
+  EMAIL_SENDER,
+  EMAIL_RENDERER,
+} from "./nestjs/auth.constants";
 export { validateAuthModuleOptions } from "./nestjs/validate-options";
 
 export type { AuthModuleOptions, AuthModuleAsyncOptions } from "./nestjs/interfaces/auth-module-options.interface";
