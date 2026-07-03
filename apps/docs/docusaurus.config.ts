@@ -15,7 +15,7 @@ const config: Config = {
   },
 
   url: 'https://luisjrez.github.io',
-  baseUrl: '/keycloak-nestjs-authentication-api/',
+  baseUrl: '/nestjs-keycloak-auth/',
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
@@ -39,7 +39,7 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           editUrl:
-            'https://github.com/luisjrez/keycloak-nestjs-authentication-api/tree/main/apps/docs/',
+            'https://github.com/luisjrez/nestjs-keycloak-auth/tree/main/apps/docs/',
         },
         blog: false,
         theme: {
@@ -68,7 +68,7 @@ const config: Config = {
           label: 'Docs',
         },
         {
-          href: 'https://github.com/luisjrez/keycloak-nestjs-authentication-api',
+              href: 'https://github.com/luisjrez/nestjs-keycloak-auth',
           label: 'GitHub',
           position: 'right',
         },
@@ -116,7 +116,7 @@ const config: Config = {
           items: [
             {
               label: 'GitHub',
-              href: 'https://github.com/luisjrez/keycloak-nestjs-authentication-api',
+          href: 'https://github.com/luisjrez/nestjs-keycloak-auth',
             },
           ],
         },
