@@ -11,19 +11,32 @@ package uses its built-in SMTP sender + React templates. When you pass a custom
 
 ## Wiring it up
 
+`emailSender` and `emailRenderer` are **module-level dependencies** (siblings of
+`imports`/`useFactory`), each accepting an instance or a provider descriptor.
+`email` (SMTP) can be omitted once `emailSender` is provided.
+
 ```typescript
+// Simplest — a ready-made instance:
 AuthModule.forRootAsync({
-  useFactory: () => ({
-    // ...jwt, keycloak, tokenStore...
-    emailSender: new ResendEmailSender(),   // optional — replaces SMTP
-    emailRenderer: new MyEmailRenderer(),   // optional — replaces templates
-    // `email` can be omitted once emailSender is provided
-  }),
+  tokenStore: { useClass: MyTokenStore },
+  emailSender: new ResendEmailSender(),
+  emailRenderer: new MyEmailRenderer(),
+  useFactory: () => ({ jwt, keycloak }),   // pure config; no `email` needed
+});
+
+// Better when the sender needs its own dependencies — let Nest build it:
+AuthModule.forRootAsync({
+  tokenStore: { useClass: MyTokenStore },
+  emailSender: {
+    useFactory: (cfg: ConfigService) => new ResendEmailSender(cfg.get("RESEND_KEY")),
+    inject: [ConfigService],
+  },
+  useFactory: () => ({ jwt, keycloak }),
 });
 ```
 
-Both are plain objects, so build them however you like (with DI, inject them
-in the factory via `inject: [...]`).
+With a descriptor the sender/renderer is a real provider in the container: full
+DI, lifecycle hooks, and `overrideProvider` in tests.
 
 ## Custom templates (`IEmailRenderer`)
 

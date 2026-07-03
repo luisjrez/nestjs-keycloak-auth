@@ -1,32 +1,49 @@
 # Module Options
 
+Configuration splits into two parts:
+
+- **Pure config** (`jwt`, `keycloak`, `email`, `rateLimit`, …) — plain data.
+- **Dependencies** (`tokenStore`, `emailSender`, `emailRenderer`) — things with
+  behavior. Each accepts **either a ready-made instance or a provider
+  descriptor** (`{ useClass }`, `{ useFactory, inject }`, `{ useValue }`,
+  `{ useExisting }`). Descriptors are wired through NestJS DI, so they get
+  constructor injection, lifecycle hooks, and `overrideProvider` in tests.
+
 ## AuthModule.forRoot
 
-Synchronous configuration with inline options:
+Synchronous — pure config and dependencies together:
 
 ```typescript
-AuthModule.forRoot(options: AuthModuleOptions)
+AuthModule.forRoot({
+  jwt, keycloak, email,              // pure config
+  tokenStore: new MyStore(),         // instance…
+  // …or a descriptor:
+  // tokenStore: { useClass: MyStore },
+});
 ```
 
 ## AuthModule.forRootAsync
 
-Asynchronous configuration (recommended for production):
+Asynchronous (recommended). Dependencies live at the **module level** (next to
+`imports`/`inject`), NOT inside `useFactory` — the container needs them when the
+module is defined. This mirrors how `@nestjs/typeorm` takes `dataSource`
+outside its options factory.
 
 ```typescript
 AuthModule.forRootAsync({
-  imports: [...],
-  inject: [...],
-  useFactory: (...deps) => ({ ... }),
-})
+  imports: [MyStoreModule],
+  tokenStore: { useExisting: MyStore },   // built by DI, not `new`
+  useFactory: () => ({ jwt, keycloak, email }),  // pure config only
+});
 ```
 
-Both entry points validate the options at startup (`validateAuthModuleOptions`)
-and throw immediately if a secret is missing, shorter than 32 characters, the
-access/refresh secrets are identical, a duration is malformed, or the token
-store is missing. This turns misconfiguration into a boot-time error instead of
-a runtime auth bug.
+Both entry points validate at startup and throw immediately if a secret is
+missing/short, the access & refresh secrets are identical, a duration is
+malformed, `email` is missing without a custom `emailSender`, or a custom
+renderer can't produce a required template. Misconfiguration becomes a
+boot-time error, not a runtime auth bug.
 
-## AuthModuleOptions
+## AuthModuleOptions (pure config)
 
 ```typescript
 interface AuthModuleOptions {
@@ -41,15 +58,6 @@ interface AuthModuleOptions {
 
   /** SMTP config for the default sender. Required unless you pass `emailSender`. */
   email?: EmailConfig;
-
-  /** Custom email transport (Resend/SES/…). Replaces the SMTP sender. */
-  emailSender?: IEmailSender;
-
-  /** Custom email renderer (your own templates). Validated at startup. */
-  emailRenderer?: IEmailRenderer;
-
-  /** Token store implementation (PrismaTokenStore, Redis, etc.) */
-  tokenStore: ITokenStore;
 
   /** Base URL for email links (default: https://example.com) */
   baseUrl?: string;
@@ -98,6 +106,46 @@ interface AuthModuleOptions {
     authGuard?: boolean;      // register JwtAuthGuard as APP_GUARD (default: true)
     validationPipe?: boolean; // register a whitelist ValidationPipe (default: true)
   };
+}
+```
+
+## AuthModuleDeps (dependencies)
+
+Passed at the module level. Each is a `Providable<T>` — an instance or a
+provider descriptor.
+
+```typescript
+type Providable<T> =
+  | T                                                  // ready-made instance
+  | { useClass: new (...args) => T }                   // Nest constructs it
+  | { useFactory: (...deps) => T; inject?: unknown[] } // built by a factory
+  | { useValue: T }
+  | { useExisting: InjectionToken };                   // reuse another provider
+
+interface AuthModuleDeps {
+  /** Token/session persistence. Required. */
+  tokenStore: Providable<ITokenStore>;
+  /** Email transport. Defaults to the built-in SMTP sender. */
+  emailSender?: Providable<IEmailSender>;
+  /** Email renderer/templates. Defaults to the built-in React renderer. */
+  emailRenderer?: Providable<IEmailRenderer>;
+}
+```
+
+Prefer a descriptor when the dependency has its own injections:
+
+```typescript
+// Nest builds MyStore and injects its constructor deps — no manual `new`.
+tokenStore: { useClass: PrismaTokenStore }
+
+// Reuse a provider exported by another module you import.
+imports: [MyStoreModule],
+tokenStore: { useExisting: MyStore }
+
+// Full control, with injections.
+emailSender: {
+  useFactory: (cfg: ConfigService) => new ResendSender(cfg.get("RESEND_KEY")),
+  inject: [ConfigService],
 }
 ```
 

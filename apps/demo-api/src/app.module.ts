@@ -2,7 +2,6 @@ import { Module } from "@nestjs/common";
 import { AuthModule } from "@luisjrez/nestjs-keycloak-auth";
 import { AppController } from "./app.controller";
 import { PrismaModule } from "./prisma/prisma.module";
-import { PrismaService } from "./prisma/prisma.service";
 import { PrismaTokenStore } from "./prisma/prisma-token.store";
 
 /**
@@ -27,9 +26,11 @@ function requireSecret(name: string, devFallback: string): string {
     // ─── Auth Module ──────────────────────────────────────────
     // This is how consumers wire the auth package into their NestJS app.
     AuthModule.forRootAsync({
-      imports: [PrismaModule],
-      inject: [PrismaService],
-      useFactory: (prisma: PrismaService) => ({
+      // The token store is a module-level dependency. Passing `{ useClass }`
+      // lets Nest construct it and inject its own deps (PrismaService here) —
+      // no manual `new`. You could also pass a ready-made instance.
+      tokenStore: { useClass: PrismaTokenStore },
+      useFactory: () => ({
         keycloakConfigPath: process.env["KEYCLOAK_CONFIG_PATH"] ?? "./keycloak-realm.json",
         jwt: {
           accessToken: {
@@ -49,7 +50,6 @@ function requireSecret(name: string, devFallback: string): string {
             ignoreTLS: true,
           },
         },
-        tokenStore: new PrismaTokenStore(prisma),
         baseUrl: process.env["APP_URL"] ?? "http://localhost:3000",
         cookieSecure: process.env["NODE_ENV"] === "production",
         // Allow E2E/load environments to turn rate limiting off.

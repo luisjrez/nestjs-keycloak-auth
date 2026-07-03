@@ -1,5 +1,4 @@
 import { validateAuthModuleOptions } from "../../src/nestjs/validate-options";
-import { InMemoryTokenStore } from "../../src/infrastructure/storage/in-memory-token.store";
 import type { AuthModuleOptions } from "../../src/nestjs/interfaces/auth-module-options.interface";
 
 function baseOptions(overrides: Partial<AuthModuleOptions> = {}): AuthModuleOptions {
@@ -15,7 +14,6 @@ function baseOptions(overrides: Partial<AuthModuleOptions> = {}): AuthModuleOpti
       refreshToken: { secret: "b".repeat(32), expiresIn: "7d" },
     },
     email: { from: "no-reply@test.com", transport: { host: "localhost", port: 1025 } },
-    tokenStore: new InMemoryTokenStore(),
     ...overrides,
   };
 }
@@ -67,5 +65,17 @@ describe("validateAuthModuleOptions", () => {
     expect(() => validateAuthModuleOptions(baseOptions({ baseUrl: "not-a-url" }))).toThrow(
       /baseUrl/,
     );
+  });
+
+  it("should require email when no custom sender is supplied", () => {
+    const opts = baseOptions();
+    delete opts.email;
+    expect(() => validateAuthModuleOptions(opts)).toThrow(/email\.from/);
+  });
+
+  it("should allow omitting email when a custom sender is supplied", () => {
+    const opts = baseOptions();
+    delete opts.email;
+    expect(() => validateAuthModuleOptions(opts, { hasCustomSender: true })).not.toThrow();
   });
 });

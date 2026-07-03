@@ -3,12 +3,23 @@ import type { AuthModuleOptions } from "./interfaces/auth-module-options.interfa
 
 const MIN_SECRET_LENGTH = 32;
 
+export interface ValidateContext {
+  /** True when a custom emailSender is supplied, making `email` optional. */
+  hasCustomSender?: boolean;
+}
+
 /**
  * Validates the module configuration at startup so misconfiguration fails
  * loudly instead of surfacing as runtime auth bugs. Returns the options
  * unchanged when valid.
+ *
+ * Note: `tokenStore`, `emailSender` and `emailRenderer` are NOT part of these
+ * options — they are module-level deps wired via NestJS DI (see AuthModuleDeps).
  */
-export function validateAuthModuleOptions(options: AuthModuleOptions): AuthModuleOptions {
+export function validateAuthModuleOptions(
+  options: AuthModuleOptions,
+  context: ValidateContext = {},
+): AuthModuleOptions {
   const problems: string[] = [];
 
   if (!options.keycloak && !options.keycloakConfigPath) {
@@ -43,12 +54,8 @@ export function validateAuthModuleOptions(options: AuthModuleOptions): AuthModul
     }
   }
 
-  if (!options.tokenStore) {
-    problems.push("tokenStore is required");
-  }
-
   // The default SMTP sender needs `email`; a custom `emailSender` replaces it.
-  if (!options.emailSender && (!options.email?.from || !options.email?.transport?.host)) {
+  if (!context.hasCustomSender && (!options.email?.from || !options.email?.transport?.host)) {
     problems.push(
       "email.from and email.transport.host are required (unless you provide a custom `emailSender`)",
     );

@@ -106,6 +106,28 @@ security bugs: a `findByToken` that hides consumed records, and a
 `markConsumed` that isn't atomic. The TypeORM and Drizzle examples below run it
 against an in-memory SQLite database — no Docker required.
 
+## Wiring it into the module
+
+`tokenStore` is a module-level dependency (next to `imports`/`useFactory`), and
+accepts an instance or a provider descriptor. Prefer a descriptor so Nest
+builds the store and injects its own dependencies:
+
+```typescript
+// The store is @Injectable and pulls its deps (a DataSource, a Prisma client…)
+// from DI — no manual `new`.
+AuthModule.forRootAsync({
+  imports: [MyStoreModule],
+  tokenStore: { useExisting: MyTokenStore },  // or { useClass: MyTokenStore }
+  useFactory: () => ({ jwt, keycloak, email }),
+});
+
+// Or the simple case — a ready-made instance:
+AuthModule.forRoot({ jwt, keycloak, email, tokenStore: new MyTokenStore(db) });
+```
+
+See the three example apps below for `useClass` (Prisma) and `useExisting`
+(TypeORM, Drizzle) in practice.
+
 ## Complete, runnable examples
 
 Three full example apps in this repo implement the same store against different

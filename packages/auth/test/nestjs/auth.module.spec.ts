@@ -5,11 +5,12 @@ import { KeycloakAuthProvider } from "../../src/infrastructure/keycloak/keycloak
 import { InMemoryTokenStore } from "../../src/infrastructure/storage/in-memory-token.store";
 import { AuthEventBus } from "../../src/nestjs/events/auth-event-bus";
 import { LoginUseCase } from "../../src/application/use-cases/login.use-case";
-import { EMAIL_RENDERER, EMAIL_SENDER } from "../../src/nestjs/auth.constants";
+import { EMAIL_RENDERER, EMAIL_SENDER, TOKEN_STORE } from "../../src/nestjs/auth.constants";
 import type { IEmailSender } from "../../src/domain/ports/email-sender.port";
 import type { IEmailRenderer, RenderedEmail } from "../../src/domain/ports/email-renderer.port";
 
-const validOptions = () => ({
+// Pure config (no deps). Deps like tokenStore are passed at the module level.
+const validConfig = () => ({
   keycloak: {
     serverUrl: "http://localhost:8080",
     realm: "test",
@@ -24,8 +25,10 @@ const validOptions = () => ({
     from: "test@test.com",
     transport: { host: "localhost", port: 1025 },
   },
-  tokenStore: new InMemoryTokenStore(),
 });
+
+// Sync config = pure config + deps, as forRoot expects.
+const validOptions = () => ({ ...validConfig(), tokenStore: new InMemoryTokenStore() });
 
 describe("AuthModule", () => {
   describe("forRoot", () => {
@@ -59,7 +62,12 @@ describe("AuthModule", () => {
   describe("forRootAsync", () => {
     it("should create a module with async factory", async () => {
       const module = await Test.createTestingModule({
-        imports: [AuthModule.forRootAsync({ useFactory: () => validOptions() })],
+        imports: [
+          AuthModule.forRootAsync({
+            tokenStore: new InMemoryTokenStore(),
+            useFactory: () => validConfig(),
+          }),
+        ],
       }).compile();
 
       expect(module.get<KeycloakAuthProvider>(KeycloakAuthProvider)).toBeDefined();
@@ -72,8 +80,9 @@ describe("AuthModule", () => {
         Test.createTestingModule({
           imports: [
             AuthModule.forRootAsync({
+              tokenStore: new InMemoryTokenStore(),
               useFactory: () => {
-                const opts = validOptions();
+                const opts = validConfig();
                 delete (opts as { keycloak?: unknown }).keycloak;
                 return opts;
               },
@@ -136,6 +145,75 @@ describe("AuthModule", () => {
           imports: [AuthModule.forRoot({ ...validOptions(), emailRenderer: brokenRenderer })],
         }).compile(),
       ).rejects.toThrow(/magic-link/);
+    });
+  });
+
+  describe("provider-descriptor dependencies", () => {
+    it("accepts a tokenStore as a useClass descriptor and builds it via DI", async () => {
+      const module = await Test.createTestingModule({
+        imports: [
+          AuthModule.forRootAsync({
+            tokenStore: { useClass: InMemoryTokenStore },
+            useFactory: () => validConfig(),
+          }),
+        ],
+      }).compile();
+
+      const store = module.get<InMemoryTokenStore>(TOKEN_STORE);
+      expect(store).toBeInstanceOf(InMemoryTokenStore);
+      await module.close();
+    });
+
+    it("accepts a tokenStore as a useFactory descriptor with inject", async () => {
+      const built = new InMemoryTokenStore();
+      const module = await Test.createTestingModule({
+        imports: [
+          AuthModule.forRootAsync({
+            tokenStore: { useFactory: () => built },
+            useFactory: () => validConfig(),
+          }),
+        ],
+      }).compile();
+
+      expect(module.get<InMemoryTokenStore>(TOKEN_STORE)).toBe(built);
+      await module.close();
+    });
+
+    it("accepts an emailSender as a useClass descriptor", async () => {
+      class NoopSender implements IEmailSender {
+        async send(): Promise<void> {}
+      }
+      const module = await Test.createTestingModule({
+        imports: [
+          AuthModule.forRoot({
+            ...validOptions(),
+            emailSender: { useClass: NoopSender },
+          }),
+        ],
+      }).compile();
+
+      expect(module.get<IEmailSender>(EMAIL_SENDER)).toBeInstanceOf(NoopSender);
+      await module.close();
+    });
+
+    it("validates a renderer supplied as a useClass descriptor at startup", async () => {
+      class BrokenRenderer implements IEmailRenderer {
+        async render(name: string): Promise<RenderedEmail> {
+          if (name === "verify-email") throw new Error("missing");
+          return { html: "<p>x</p>", text: "x", subject: "S" };
+        }
+      }
+
+      await expect(
+        Test.createTestingModule({
+          imports: [
+            AuthModule.forRoot({
+              ...validOptions(),
+              emailRenderer: { useClass: BrokenRenderer },
+            }),
+          ],
+        }).compile(),
+      ).rejects.toThrow(/verify-email/);
     });
   });
 });

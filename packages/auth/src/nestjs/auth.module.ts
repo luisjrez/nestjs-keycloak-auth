@@ -28,9 +28,11 @@ import {
   AUTH_MODULE_OPTIONS,
   AUTH_PROVIDER,
   EMAIL_RENDERER,
+  EMAIL_RENDERER_SOURCE,
   EMAIL_SENDER,
   TOKEN_STORE,
 } from "./auth.constants";
+import { resolveProvidable } from "./providable";
 import { validateAuthModuleOptions } from "./validate-options";
 import { validateEmailRenderer } from "./validate-email-renderer";
 import { parseDurationMs } from "../domain/utils/duration";
@@ -54,7 +56,12 @@ import { Setup2FAUseCase } from "../application/use-cases/setup-2fa.use-case";
 import { Verify2FAUseCase } from "../application/use-cases/verify-2fa.use-case";
 import { LogoutUseCase } from "../application/use-cases/logout.use-case";
 
-import type { AuthModuleOptions, AuthModuleAsyncOptions } from "./interfaces/auth-module-options.interface";
+import type {
+  AuthModuleOptions,
+  AuthModuleAsyncOptions,
+  AuthModuleSyncConfig,
+  AuthModuleDeps,
+} from "./interfaces/auth-module-options.interface";
 
 const USE_CASES = [
   RegisterUseCase,
@@ -77,28 +84,38 @@ function refreshTokenTtlMs(options: AuthModuleOptions): number {
 @Global()
 @Module({})
 export class AuthModule {
-  static forRoot(options: AuthModuleOptions): DynamicModule {
-    return AuthModule.build({
-      provide: AUTH_MODULE_OPTIONS,
-      useValue: validateAuthModuleOptions(options),
-    });
-  }
-
-  static forRootAsync(options: AuthModuleAsyncOptions): DynamicModule {
+  static forRoot(config: AuthModuleSyncConfig): DynamicModule {
+    const { tokenStore, emailSender, emailRenderer, ...options } = config;
     return AuthModule.build(
       {
         provide: AUTH_MODULE_OPTIONS,
-        inject: options.inject ?? [],
-        useFactory: async (...args: unknown[]) =>
-          validateAuthModuleOptions(await options.useFactory(...args)),
+        useValue: validateAuthModuleOptions(options, { hasCustomSender: emailSender !== undefined }),
       },
-      options.imports ?? [],
+      [],
+      { tokenStore, emailSender, emailRenderer },
+    );
+  }
+
+  static forRootAsync(options: AuthModuleAsyncOptions): DynamicModule {
+    const { tokenStore, emailSender, emailRenderer, imports, inject, useFactory } = options;
+    return AuthModule.build(
+      {
+        provide: AUTH_MODULE_OPTIONS,
+        inject: inject ?? [],
+        useFactory: async (...args: unknown[]) =>
+          validateAuthModuleOptions(await useFactory(...args), {
+            hasCustomSender: emailSender !== undefined,
+          }),
+      },
+      imports ?? [],
+      { tokenStore, emailSender, emailRenderer },
     );
   }
 
   private static build(
     optionsProvider: Provider,
     imports: ModuleMetadata["imports"] = [],
+    deps: AuthModuleDeps,
   ): DynamicModule {
     return {
       module: AuthModule,
@@ -107,7 +124,7 @@ export class AuthModule {
       providers: [
         optionsProvider,
         ...AuthModule.createCoreProviders(),
-        ...AuthModule.createInfrastructureProviders(),
+        ...AuthModule.createInfrastructureProviders(deps),
         ...AuthModule.createUseCaseProviders(),
         ...AuthModule.createThrottlerProviders(),
         { provide: APP_GUARD, useClass: GlobalAuthGuard },
@@ -154,18 +171,46 @@ export class AuthModule {
     ];
   }
 
-  private static createInfrastructureProviders(): Provider[] {
+  private static createInfrastructureProviders(deps: AuthModuleDeps): Provider[] {
     return [
       {
         provide: JwtTokenService,
         inject: [AUTH_MODULE_OPTIONS],
         useFactory: (opts: AuthModuleOptions) => new JwtTokenService(opts.jwt),
       },
-      {
+
+      // Consumer-supplied dependencies. Each accepts either a ready-made
+      // instance or a provider descriptor ({ useClass | useFactory | ... }),
+      // so they get full DI, lifecycle hooks, and overrideProvider in tests.
+      ...resolveProvidable<ITokenStore>(TOKEN_STORE, deps.tokenStore, {
         provide: TOKEN_STORE,
+        useFactory: () => {
+          throw new Error("tokenStore is required");
+        },
+      }),
+      ...resolveProvidable<IEmailSender>(EMAIL_SENDER, deps.emailSender, {
+        provide: EMAIL_SENDER,
         inject: [AUTH_MODULE_OPTIONS],
-        useFactory: (opts: AuthModuleOptions) => opts.tokenStore,
+        // Default SMTP sender; `email` presence is enforced by validation.
+        useFactory: (opts: AuthModuleOptions): IEmailSender =>
+          new MailpitEmailSender(opts.email as EmailConfig),
+      }),
+      ...resolveProvidable<IEmailRenderer>(EMAIL_RENDERER_SOURCE, deps.emailRenderer, {
+        provide: EMAIL_RENDERER_SOURCE,
+        useFactory: (): IEmailRenderer => new ReactEmailRenderer(),
+      }),
+      // Wraps the resolved renderer with a startup conformance check, then
+      // exposes it as EMAIL_RENDERER. Works whether the source was an
+      // instance, a class, or a factory.
+      {
+        provide: EMAIL_RENDERER,
+        inject: [EMAIL_RENDERER_SOURCE],
+        useFactory: async (renderer: IEmailRenderer): Promise<IEmailRenderer> => {
+          await validateEmailRenderer(renderer);
+          return renderer;
+        },
       },
+
       {
         provide: KeycloakAuthProvider,
         inject: [AUTH_MODULE_OPTIONS, JwtTokenService, TOKEN_STORE],
@@ -185,26 +230,6 @@ export class AuthModule {
         },
       },
       { provide: AUTH_PROVIDER, useExisting: KeycloakAuthProvider },
-      {
-        provide: EMAIL_SENDER,
-        inject: [AUTH_MODULE_OPTIONS],
-        useFactory: (opts: AuthModuleOptions): IEmailSender =>
-          // A custom sender replaces SMTP entirely; otherwise use the default.
-          // `email` presence is guaranteed by validateAuthModuleOptions when no
-          // custom sender is supplied.
-          opts.emailSender ?? new MailpitEmailSender(opts.email as EmailConfig),
-      },
-      {
-        provide: EMAIL_RENDERER,
-        inject: [AUTH_MODULE_OPTIONS],
-        useFactory: async (opts: AuthModuleOptions): Promise<IEmailRenderer> => {
-          const renderer = opts.emailRenderer ?? new ReactEmailRenderer();
-          // Fail at startup if the renderer can't produce every template the
-          // package emits (covers both custom and default renderers).
-          await validateEmailRenderer(renderer);
-          return renderer;
-        },
-      },
     ];
   }
 

@@ -21,9 +21,10 @@ function requireSecret(name: string, devFallback: string): string {
     DrizzleModule,
 
     AuthModule.forRootAsync({
+      // DrizzleModule already provides DrizzleTokenStore; reuse it.
       imports: [DrizzleModule],
-      inject: [DrizzleTokenStore],
-      useFactory: (tokenStore: DrizzleTokenStore) => ({
+      tokenStore: { useExisting: DrizzleTokenStore },
+      useFactory: () => ({
         keycloakConfigPath: process.env["KEYCLOAK_CONFIG_PATH"] ?? "./keycloak-realm.json",
         jwt: {
           accessToken: {
@@ -43,7 +44,6 @@ function requireSecret(name: string, devFallback: string): string {
             ignoreTLS: true,
           },
         },
-        tokenStore,
         baseUrl: process.env["APP_URL"] ?? "http://localhost:3000",
         cookieSecure: process.env["NODE_ENV"] === "production",
         ...(process.env["RATE_LIMIT_DISABLED"] === "1" && {

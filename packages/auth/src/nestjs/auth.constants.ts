@@ -12,3 +12,10 @@ export const EMAIL_SENDER = "IEmailSender";
 
 /** DI token for the IEmailRenderer port (custom or default React renderer). */
 export const EMAIL_RENDERER = "IEmailRenderer";
+
+/**
+ * Internal token holding the raw (unvalidated) renderer before the startup
+ * conformance check wraps it and re-exposes it as EMAIL_RENDERER. Not exported
+ * from the package barrel — an implementation detail.
+ */
+export const EMAIL_RENDERER_SOURCE = "IEmailRenderer:source";

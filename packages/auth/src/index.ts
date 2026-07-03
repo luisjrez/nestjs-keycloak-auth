@@ -86,7 +86,13 @@ export {
 } from "./nestjs/auth.constants";
 export { validateAuthModuleOptions } from "./nestjs/validate-options";
 
-export type { AuthModuleOptions, AuthModuleAsyncOptions } from "./nestjs/interfaces/auth-module-options.interface";
+export type {
+  AuthModuleOptions,
+  AuthModuleAsyncOptions,
+  AuthModuleSyncConfig,
+  AuthModuleDeps,
+} from "./nestjs/interfaces/auth-module-options.interface";
+export type { Providable } from "./nestjs/providable";
 
 // ─── Events ─────────────────────────────────────────────────
 export {

@@ -29,9 +29,11 @@ function requireSecret(name: string, devFallback: string): string {
     TokenStoreModule,
 
     AuthModule.forRootAsync({
+      // TokenStoreModule already provides TypeOrmTokenStore (wired to its
+      // repositories); reuse that provider via `useExisting`.
       imports: [TokenStoreModule],
-      inject: [TypeOrmTokenStore],
-      useFactory: (tokenStore: TypeOrmTokenStore) => ({
+      tokenStore: { useExisting: TypeOrmTokenStore },
+      useFactory: () => ({
         keycloakConfigPath: process.env["KEYCLOAK_CONFIG_PATH"] ?? "./keycloak-realm.json",
         jwt: {
           accessToken: {
@@ -51,7 +53,6 @@ function requireSecret(name: string, devFallback: string): string {
             ignoreTLS: true,
           },
         },
-        tokenStore,
         baseUrl: process.env["APP_URL"] ?? "http://localhost:3000",
         cookieSecure: process.env["NODE_ENV"] === "production",
         ...(process.env["RATE_LIMIT_DISABLED"] === "1" && {
