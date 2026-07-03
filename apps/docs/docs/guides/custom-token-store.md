@@ -1,6 +1,9 @@
 # Custom Token Store
 
-The `ITokenStore` interface is the persistence layer for tokens (magic links, reset tokens, refresh tokens) and key-value user data (2FA secrets).
+`ITokenStore` is the **only** persistence dependency the package has. The
+package ships no database driver and imports no ORM — it talks exclusively to
+this interface, so you can back it with Prisma, TypeORM, Drizzle, Redis, or
+anything else.
 
 ## Interface
 
@@ -8,8 +11,9 @@ The `ITokenStore` interface is the persistence layer for tokens (magic links, re
 interface ITokenStore {
   save(record: TokenRecord): Promise<void>;
   findByToken(token: string, type: TokenRecord["type"]): Promise<TokenRecord | null>;
-  markConsumed(id: string): Promise<void>;
+  markConsumed(id: string): Promise<boolean>;
   deleteExpired(): Promise<void>;
+  deleteAllForUser(userId: string): Promise<void>;
   saveUserData(userId: string, key: string, value: string): Promise<void>;
   getUserData(userId: string, key: string): Promise<string | null>;
   deleteUserData(userId: string, key: string): Promise<void>;
@@ -18,64 +22,90 @@ interface ITokenStore {
 interface TokenRecord {
   id: string;
   userId: string;
-  type: "MAGIC_LINK" | "RESET_PASSWORD" | "VERIFY_EMAIL" | "REFRESH_TOKEN";
-  token: string;       // Store the SHA-256 hash of the token
+  type: "MAGIC_LINK" | "RESET_PASSWORD" | "VERIFY_EMAIL" | "REFRESH_TOKEN" | "PRE_AUTH_2FA";
+  token: string;       // hash this before persisting
   expiresAt: Date;
   consumedAt?: Date;
   createdAt: Date;
 }
 ```
 
-## Token hashing
+## The three contract rules that matter
 
-Always hash tokens before storing. Use SHA-256:
+Getting any of these wrong silently disables a security feature — the types
+won't catch it, so read carefully:
 
-```typescript
-import { createHash } from "node:crypto";
+1. **Hash tokens before storing.** `save` receives the token in clear text;
+   persist `hashToken(record.token)`, never the raw value. `findByToken`
+   receives the clear-text token and must hash it to look up. Import the
+   package's helper:
 
-function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
-```
+   ```typescript
+   import { hashToken } from "@luisjrez/nestjs-keycloak-auth";
+   ```
 
-## Example: Redis store
+2. **`findByToken` must return consumed records too.** Do **not** filter
+   `WHERE consumedAt IS NULL`. Refresh-token reuse detection works by finding a
+   record whose `consumedAt` is already set — if you hide consumed rows, a
+   stolen-and-rotated token is silently accepted.
+
+3. **`markConsumed` must be atomic and return a boolean.** Implement it as a
+   conditional update and report whether a row actually changed:
+
+   ```sql
+   UPDATE tokens SET consumed_at = now() WHERE id = ? AND consumed_at IS NULL
+   ```
+
+   Return `true` only if one row was affected. Returning `false` signals a
+   concurrent/repeated consume — the use case treats that as reuse. Always
+   returning `true` opens a double-use race window.
+
+`deleteAllForUser` revokes every token for a user (used after reuse detection
+and after a password reset). `saveUserData` is an upsert keyed on
+`(userId, key)` — it also stores lockout counters under the literal userId
+`"system"`, so tolerate any string userId.
+
+## Minimal schema
+
+Two tables:
+
+| tokens | user data |
+|---|---|
+| `id`, `userId`, `type`, `tokenHash`, `expiresAt`, `consumedAt` (nullable), `createdAt` | `userId`, `key`, `value` |
+| index `tokenHash`, index `userId` | unique `(userId, key)` |
+
+## Complete, runnable examples
+
+Three full example apps in this repo implement the same store against different
+ORMs — all on SQLite (no database container needed; only Keycloak runs in
+Docker):
+
+- **Prisma** — [`apps/demo-api`](https://github.com/luisjrez/keycloak-nestjs-authentication-api/tree/main/apps/demo-api) (`src/prisma/prisma-token.store.ts`)
+- **TypeORM** — [`apps/example-typeorm`](https://github.com/luisjrez/keycloak-nestjs-authentication-api/tree/main/apps/example-typeorm) (`src/typeorm/typeorm-token.store.ts`)
+- **Drizzle** — [`apps/example-drizzle`](https://github.com/luisjrez/keycloak-nestjs-authentication-api/tree/main/apps/example-drizzle) (`src/db/drizzle-token.store.ts`)
+
+Each has an E2E suite that proves register → login → refresh-rotation →
+reuse-detection all work through that store.
+
+## Sketch: Redis store
 
 ```typescript
 import Redis from "ioredis";
-import type { ITokenStore, TokenRecord } from "@luisjrez/nestjs-keycloak-auth";
+import { hashToken, type ITokenStore, type TokenRecord } from "@luisjrez/nestjs-keycloak-auth";
 
 export class RedisTokenStore implements ITokenStore {
   constructor(private readonly redis: Redis) {}
 
   async save(record: TokenRecord): Promise<void> {
-    const key = `token:${hashToken(record.token)}`;
-    await this.redis.set(key, JSON.stringify(record), "PXAT", record.expiresAt.getTime());
+    const key = `token:${record.type}:${hashToken(record.token)}`;
+    await this.redis.set(key, JSON.stringify({ ...record, token: hashToken(record.token) }),
+      "PXAT", record.expiresAt.getTime());
   }
-
-  async findByToken(token: string, type: string): Promise<TokenRecord | null> {
-    const key = `token:${hashToken(token)}`;
-    const data = await this.redis.get(key);
-    return data ? JSON.parse(data) : null;
-  }
+  // markConsumed: use a Lua script or WATCH/MULTI for the atomic conditional set.
   // ... implement remaining methods
 }
 ```
 
-## Example: TypeORM store
-
-```typescript
-import { Repository } from "typeorm";
-import type { ITokenStore, TokenRecord } from "@luisjrez/nestjs-keycloak-auth";
-
-export class TypeOrmTokenStore implements ITokenStore {
-  constructor(private readonly repo: Repository<TokenEntity>) {}
-
-  async save(record: TokenRecord): Promise<void> {
-    await this.repo.save({
-      ...record,
-      token: hashToken(record.token),
-    });
-  }
-  // ... implement remaining methods
-}
-```
+> Note: Redis needs care to make `markConsumed` atomic (a Lua script or
+> optimistic `WATCH`/`MULTI`), and `findByToken` must still surface consumed
+> records within their TTL. The SQL examples above are simpler to get right.

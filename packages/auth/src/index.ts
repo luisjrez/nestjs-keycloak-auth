@@ -73,6 +73,7 @@ export { JwtAuthGuard } from "./nestjs/guards/jwt-auth.guard";
 export { OptionalAuthGuard } from "./nestjs/guards/optional-auth.guard";
 export { CsrfGuard } from "./nestjs/guards/csrf.guard";
 export { CurrentUser } from "./nestjs/decorators/current-user.decorator";
+export type { AuthenticatedUser } from "./nestjs/decorators/current-user.decorator";
 export { Public } from "./nestjs/decorators/public.decorator";
 export { AuthExceptionFilter } from "./nestjs/filters/auth-exception.filter";
 export { AuthEventBus } from "./nestjs/events/auth-event-bus";

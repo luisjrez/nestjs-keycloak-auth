@@ -25,3 +25,8 @@ Thumbs.db
 # Coverage
 coverage/
 PLAN.md
+
+# SQLite (example apps)
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
