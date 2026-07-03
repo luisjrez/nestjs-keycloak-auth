@@ -1,10 +1,12 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "@luisjrez/nestjs-keycloak-auth";
+import { AppController } from "./app.controller";
 import { PrismaModule } from "./prisma/prisma.module";
 import { PrismaService } from "./prisma/prisma.service";
 import { PrismaTokenStore } from "./prisma/prisma-token.store";
 
 @Module({
+  controllers: [AppController],
   imports: [
     PrismaModule,
 
@@ -34,6 +36,8 @@ import { PrismaTokenStore } from "./prisma/prisma-token.store";
           },
         },
         tokenStore: new PrismaTokenStore(prisma),
+        baseUrl: process.env["APP_URL"] ?? "http://localhost:3000",
+        cookieSecure: process.env["NODE_ENV"] === "production",
       }),
     }),
   ],

@@ -10,9 +10,12 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,json}\"",
-    "docker:up": "docker compose -f docker/docker-compose.yml up -d",
-    "docker:down": "docker compose -f docker/docker-compose.yml down",
-    "docker:logs": "docker compose -f docker/docker-compose.yml logs -f",
+    "docs:dev": "pnpm --filter docs start",
+    "docs:build": "pnpm --filter docs build",
+    "docker:up": "docker-compose -f docker/docker-compose.yml up -d",
+    "docker:down": "docker-compose -f docker/docker-compose.yml down",
+    "docker:logs": "docker-compose -f docker/docker-compose.yml logs -f",
+    "test:e2e": "pnpm --filter @luisjrez/nestjs-keycloak-auth build && pnpm --filter demo-api test:e2e",
     "clean": "turbo clean && rm -rf node_modules"
   },
   "devDependencies": {

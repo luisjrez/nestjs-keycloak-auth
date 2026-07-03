@@ -39,8 +39,9 @@ export { SendMagicLinkUseCase } from "./application/use-cases/send-magic-link.us
 export { VerifyMagicLinkUseCase } from "./application/use-cases/verify-magic-link.use-case";
 export { Setup2FAUseCase } from "./application/use-cases/setup-2fa.use-case";
 export { Verify2FAUseCase } from "./application/use-cases/verify-2fa.use-case";
+export { LogoutUseCase } from "./application/use-cases/logout.use-case";
 
-export type {
+export {
   RegisterDto,
   LoginDto,
   RefreshTokenDto,

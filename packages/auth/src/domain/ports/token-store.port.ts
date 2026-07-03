@@ -13,4 +13,7 @@ export interface ITokenStore {
   findByToken(token: string, type: TokenRecord["type"]): Promise<TokenRecord | null>;
   markConsumed(id: string): Promise<void>;
   deleteExpired(): Promise<void>;
+  saveUserData(userId: string, key: string, value: string): Promise<void>;
+  getUserData(userId: string, key: string): Promise<string | null>;
+  deleteUserData(userId: string, key: string): Promise<void>;
 }

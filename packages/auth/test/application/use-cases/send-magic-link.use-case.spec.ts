@@ -2,6 +2,7 @@ import { SendMagicLinkUseCase } from "../../../src/application/use-cases/send-ma
 import type { IAuthProvider } from "../../../src/domain/ports/auth-provider.port";
 import { InMemoryTokenStore } from "../../../src/infrastructure/storage/in-memory-token.store";
 import type { IEmailSender } from "../../../src/domain/ports/email-sender.port";
+import type { IEmailRenderer } from "../../../src/domain/ports/email-renderer.port";
 import type { User } from "../../../src/domain/entities/user";
 import { UserNotFoundError } from "../../../src/domain/errors/auth-errors";
 
@@ -10,6 +11,7 @@ describe("SendMagicLinkUseCase", () => {
   let mockAuthProvider: jest.Mocked<IAuthProvider>;
   let tokenStore: InMemoryTokenStore;
   let mockEmailSender: jest.Mocked<IEmailSender>;
+  let mockEmailRenderer: jest.Mocked<IEmailRenderer>;
 
   beforeEach(() => {
     mockAuthProvider = {
@@ -26,12 +28,26 @@ describe("SendMagicLinkUseCase", () => {
       disable2FA: jest.fn(),
       sendVerifyEmail: jest.fn(),
       verifyEmail: jest.fn(),
+      issueTokens: jest.fn(),
     };
 
     tokenStore = new InMemoryTokenStore();
     mockEmailSender = { send: jest.fn() };
+    mockEmailRenderer = {
+      render: jest.fn().mockResolvedValue({
+        html: "<p>Sign in with magic link</p>",
+        text: "Sign in with magic link",
+        subject: "Your magic sign-in link",
+      }),
+    };
 
-    useCase = new SendMagicLinkUseCase(mockAuthProvider, tokenStore, mockEmailSender);
+    useCase = new SendMagicLinkUseCase(
+      mockAuthProvider,
+      tokenStore,
+      mockEmailSender,
+      mockEmailRenderer,
+      "https://example.com",
+    );
   });
 
   it("should send magic link email", async () => {
@@ -50,10 +66,15 @@ describe("SendMagicLinkUseCase", () => {
     const result = await useCase.execute({ email: "test@example.com" });
 
     expect(mockAuthProvider.getUserByEmail).toHaveBeenCalledWith("test@example.com");
+    expect(mockEmailRenderer.render).toHaveBeenCalledWith(
+      "magic-link",
+      { magicLink: expect.stringContaining("https://example.com/magic-link?token=") },
+    );
     expect(mockEmailSender.send).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "test@example.com",
-        subject: "Your Magic Sign-In Link",
+        subject: "Your magic sign-in link",
+        html: expect.stringContaining("Sign in with magic link"),
       }),
     );
     expect(result.message).toContain("Magic link sent");
@@ -81,9 +102,13 @@ describe("SendMagicLinkUseCase", () => {
 
     await useCase.execute({ email: "test@example.com" });
 
+    expect(mockEmailRenderer.render).toHaveBeenCalledWith(
+      "magic-link",
+      { magicLink: expect.stringContaining("https://example.com/magic-link?token=") },
+    );
     expect(mockEmailSender.send).toHaveBeenCalledWith(
       expect.objectContaining({
-        html: expect.stringContaining("token="),
+        html: expect.stringContaining("Sign in with magic link"),
       }),
     );
   });

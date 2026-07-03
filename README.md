@@ -1,9 +1,27 @@
 # @luisjrez/nestjs-keycloak-auth
 
-A clean-architecture NestJS authentication module backed by Keycloak.
+<p align="center">
+  <a href="https://www.npmjs.com/package/@luisjrez/nestjs-keycloak-auth">
+    <img src="https://img.shields.io/npm/v/@luisjrez/nestjs-keycloak-auth?style=flat-square" alt="npm" />
+  </a>
+  <a href="https://github.com/luisjrez/nestjs-keycloak-auth/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/luisjrez/nestjs-keycloak-auth/ci.yml?branch=main&style=flat-square&label=CI" alt="CI" />
+  </a>
+  <a href="https://luisjrez.github.io/nestjs-keycloak-auth/">
+    <img src="https://img.shields.io/badge/docs-docusaurus-blue?style=flat-square" alt="Documentation" />
+  </a>
+  <a href="https://github.com/luisjrez/nestjs-keycloak-auth/blob/main/LICENSE">
+    <img src="https://img.shields.io/npm/l/@luisjrez/nestjs-keycloak-auth?style=flat-square" alt="License" />
+  </a>
+  <a href="https://github.com/luisjrez/nestjs-keycloak-auth">
+    <img src="https://img.shields.io/github/stars/luisjrez/nestjs-keycloak-auth?style=flat-square" alt="GitHub Stars" />
+  </a>
+</p>
 
-Provides Django-like auth (email + username + password) as the default identity
-flow while leveraging Keycloak as the source of truth for user identity.
+A clean-architecture NestJS authentication module backed by Keycloak — **identity
+handled by Keycloak, tokens signed locally, your DB your schema.**
+
+> 📖 **Full documentation**: https://luisjrez.github.io/nestjs-keycloak-auth/
 
 ---
 

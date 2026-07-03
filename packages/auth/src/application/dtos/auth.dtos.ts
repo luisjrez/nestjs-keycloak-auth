@@ -1,40 +1,69 @@
-export interface RegisterDto {
-  email: string;
-  username: string;
-  password: string;
+import { IsEmail, IsString, MinLength, Matches } from "class-validator";
+
+export class RegisterDto {
+  @IsEmail({}, { message: "Invalid email" })
+  email!: string;
+
+  @IsString()
+  @MinLength(3)
+  username!: string;
+
+  @IsString()
+  @MinLength(8)
+  @Matches(
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d])/,
+    { message: "Password must contain uppercase, lowercase, number, and special character" },
+  )
+  password!: string;
 }
 
-export interface LoginDto {
-  email: string;
-  password: string;
+export class LoginDto {
+  @IsEmail({}, { message: "Invalid email" })
+  email!: string;
+
+  @IsString()
+  password!: string;
 }
 
-export interface RefreshTokenDto {
-  refreshToken: string;
+export class RefreshTokenDto {
+  @IsString()
+  refreshToken!: string;
 }
 
-export interface ForgotPasswordDto {
-  email: string;
+export class ForgotPasswordDto {
+  @IsEmail({}, { message: "Invalid email" })
+  email!: string;
 }
 
-export interface ResetPasswordDto {
-  token: string;
-  newPassword: string;
+export class ResetPasswordDto {
+  @IsString()
+  token!: string;
+
+  @IsString()
+  @MinLength(8)
+  newPassword!: string;
 }
 
-export interface SendMagicLinkDto {
-  email: string;
+export class SendMagicLinkDto {
+  @IsEmail({}, { message: "Invalid email" })
+  email!: string;
 }
 
-export interface VerifyMagicLinkDto {
-  token: string;
+export class VerifyMagicLinkDto {
+  @IsString()
+  token!: string;
 }
 
-export interface Setup2FADto {
-  userId: string;
+export class Setup2FADto {
+  @IsString()
+  userId!: string;
 }
 
-export interface Verify2FADto {
-  userId: string;
-  code: string;
+export class Verify2FADto {
+  @IsString()
+  userId!: string;
+
+  @IsString()
+  @MinLength(6)
+  code!: string;
 }

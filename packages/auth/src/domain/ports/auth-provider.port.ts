@@ -33,7 +33,7 @@ export interface InitiatePasswordResetRequest {
 }
 
 export interface CompletePasswordResetRequest {
-  token: string;
+  userId: string;
   newPassword: string;
 }
 
@@ -67,4 +67,5 @@ export interface IAuthProvider {
   disable2FA(userId: string): Promise<void>;
   sendVerifyEmail(userId: string): Promise<void>;
   verifyEmail(token: string): Promise<void>;
+  issueTokens(userId: string): Promise<RefreshTokenResponse>;
 }

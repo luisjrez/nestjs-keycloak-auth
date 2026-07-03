@@ -6,7 +6,7 @@ const config: Config = {
   roots: ["<rootDir>/src", "<rootDir>/test"],
   testMatch: ["**/*.spec.ts", "**/*.test.ts"],
   transform: {
-    "^.+\\.ts$": [
+    "^.+\\.tsx?$": [
       "ts-jest",
       {
         tsconfig: "tsconfig.json",
@@ -14,7 +14,7 @@ const config: Config = {
       },
     ],
   },
-  moduleFileExtensions: ["ts", "js", "json"],
+  moduleFileExtensions: ["ts", "tsx", "js", "json"],
   collectCoverageFrom: [
     "src/**/*.ts",
     "!src/**/*.d.ts",

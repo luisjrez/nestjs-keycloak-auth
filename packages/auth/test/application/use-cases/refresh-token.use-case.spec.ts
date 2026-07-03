@@ -20,6 +20,7 @@ describe("RefreshTokenUseCase", () => {
       disable2FA: jest.fn(),
       sendVerifyEmail: jest.fn(),
       verifyEmail: jest.fn(),
+      issueTokens: jest.fn(),
     };
 
     useCase = new RefreshTokenUseCase(mockAuthProvider);

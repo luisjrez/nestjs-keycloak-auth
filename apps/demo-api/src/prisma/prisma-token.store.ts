@@ -1,6 +1,11 @@
+import { createHash } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import type { ITokenStore, TokenRecord } from "@luisjrez/nestjs-keycloak-auth";
 import { PrismaService } from "./prisma.service";
+
+function hash(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
 
 @Injectable()
 export class PrismaTokenStore implements ITokenStore {
@@ -11,7 +16,7 @@ export class PrismaTokenStore implements ITokenStore {
       data: {
         userId: record.userId,
         type: record.type,
-        tokenHash: record.token,
+        tokenHash: hash(record.token),
         expiresAt: record.expiresAt,
       },
     });
@@ -22,7 +27,7 @@ export class PrismaTokenStore implements ITokenStore {
     type: TokenRecord["type"],
   ): Promise<TokenRecord | null> {
     const row = await this.prisma.token.findFirst({
-      where: { tokenHash: token, type, consumedAt: null },
+      where: { tokenHash: hash(token), type, consumedAt: null },
     });
     if (!row) return null;
     return {
@@ -46,6 +51,27 @@ export class PrismaTokenStore implements ITokenStore {
   async deleteExpired(): Promise<void> {
     await this.prisma.token.deleteMany({
       where: { expiresAt: { lt: new Date() } },
+    });
+  }
+
+  async saveUserData(userId: string, key: string, value: string): Promise<void> {
+    await this.prisma.userData.upsert({
+      where: { userId_key: { userId, key } },
+      create: { userId, key, value },
+      update: { value },
+    });
+  }
+
+  async getUserData(userId: string, key: string): Promise<string | null> {
+    const row = await this.prisma.userData.findUnique({
+      where: { userId_key: { userId, key } },
+    });
+    return row?.value ?? null;
+  }
+
+  async deleteUserData(userId: string, key: string): Promise<void> {
+    await this.prisma.userData.deleteMany({
+      where: { userId, key },
     });
   }
 }

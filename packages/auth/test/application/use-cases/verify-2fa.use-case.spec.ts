@@ -21,6 +21,7 @@ describe("Verify2FAUseCase", () => {
       disable2FA: jest.fn(),
       sendVerifyEmail: jest.fn(),
       verifyEmail: jest.fn(),
+      issueTokens: jest.fn(),
     };
 
     useCase = new Verify2FAUseCase(mockAuthProvider);

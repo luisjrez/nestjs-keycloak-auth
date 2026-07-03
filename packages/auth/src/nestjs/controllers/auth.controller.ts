@@ -9,8 +9,9 @@ import {
   HttpStatus,
   UseGuards,
   UseFilters,
+  Inject,
 } from "@nestjs/common";
-import { Request, Response } from "express";
+import { Request, Response, type CookieOptions } from "express";
 import { RegisterUseCase } from "../../application/use-cases/register.use-case";
 import { LoginUseCase } from "../../application/use-cases/login.use-case";
 import { RefreshTokenUseCase } from "../../application/use-cases/refresh-token.use-case";
@@ -20,10 +21,12 @@ import { SendMagicLinkUseCase } from "../../application/use-cases/send-magic-lin
 import { VerifyMagicLinkUseCase } from "../../application/use-cases/verify-magic-link.use-case";
 import { Setup2FAUseCase } from "../../application/use-cases/setup-2fa.use-case";
 import { Verify2FAUseCase } from "../../application/use-cases/verify-2fa.use-case";
+import { LogoutUseCase } from "../../application/use-cases/logout.use-case";
 import { JwtAuthGuard } from "../guards/jwt-auth.guard";
 import { CurrentUser, type AuthenticatedUser } from "../decorators/current-user.decorator";
 import { Public } from "../decorators/public.decorator";
 import { AuthExceptionFilter } from "../filters/auth-exception.filter";
+import type { AuthModuleOptions } from "../interfaces/auth-module-options.interface";
 import type {
   RegisterDto,
   LoginDto,
@@ -48,6 +51,8 @@ export class AuthController {
     private readonly verifyMagicLinkUseCase: VerifyMagicLinkUseCase,
     private readonly setup2FAUseCase: Setup2FAUseCase,
     private readonly verify2FAUseCase: Verify2FAUseCase,
+    private readonly logoutUseCase: LogoutUseCase,
+    @Inject("AUTH_MODULE_OPTIONS") private readonly options: AuthModuleOptions,
   ) {}
 
   @Public()
@@ -66,13 +71,17 @@ export class AuthController {
   ) {
     const result = await this.loginUseCase.execute(dto);
 
-    res.cookie("refreshToken", result.refreshToken, {
+    const cookieOptions: CookieOptions = {
       httpOnly: true,
-      secure: false, // true in production
+      secure: this.options.cookieSecure ?? false,
       sameSite: "strict",
       path: "/auth/refresh",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    };
+    if (this.options.cookieDomain) {
+      cookieOptions.domain = this.options.cookieDomain;
+    }
+    res.cookie("refreshToken", result.refreshToken, cookieOptions);
 
     return {
       accessToken: result.accessToken,
@@ -99,9 +108,18 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async logout(
     @CurrentUser() _user: AuthenticatedUser,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    res.clearCookie("refreshToken", { path: "/auth/refresh" });
+    const refreshToken = req.cookies?.["refreshToken"] as string | undefined;
+    if (refreshToken) {
+      await this.logoutUseCase.execute({ refreshToken });
+    }
+    const clearOptions: CookieOptions = { path: "/auth/refresh" };
+    if (this.options.cookieDomain) {
+      clearOptions.domain = this.options.cookieDomain;
+    }
+    res.clearCookie("refreshToken", clearOptions);
     return { message: "Logged out successfully" };
   }
 
@@ -135,13 +153,17 @@ export class AuthController {
   ) {
     const result = await this.verifyMagicLinkUseCase.execute(dto);
 
-    res.cookie("refreshToken", result.refreshToken, {
+    const cookieOptions: CookieOptions = {
       httpOnly: true,
-      secure: false,
+      secure: this.options.cookieSecure ?? false,
       sameSite: "strict",
       path: "/auth/refresh",
       maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    };
+    if (this.options.cookieDomain) {
+      cookieOptions.domain = this.options.cookieDomain;
+    }
+    res.cookie("refreshToken", result.refreshToken, cookieOptions);
 
     return {
       accessToken: result.accessToken,

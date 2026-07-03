@@ -26,10 +26,10 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080"]
       interval: 15s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   # ─── PostgreSQL ────────────────────────────────────────────
   postgres:
@@ -40,7 +40,7 @@ services:
       POSTGRES_USER: keycloak
       POSTGRES_PASSWORD: keycloak
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -59,5 +59,25 @@ services:
       - "8025:8025"   # Web UI
     restart: unless-stopped
 
+  # ─── Demo API PostgreSQL ─────────────────────────────────
+  auth-db:
+    image: postgres:16-alpine
+    container_name: kc-auth-demo-db
+    environment:
+      POSTGRES_DB: auth_demo
+      POSTGRES_USER: auth_demo
+      POSTGRES_PASSWORD: auth_demo
+    ports:
+      - "5434:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_demo"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_data:
+  auth_db_data:

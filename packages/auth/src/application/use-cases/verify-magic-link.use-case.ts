@@ -34,6 +34,6 @@ export class VerifyMagicLinkUseCase {
 
     await this.tokenStore.markConsumed(record.id);
 
-    return this.authProvider.refreshToken({ refreshToken: "" });
+    return this.authProvider.issueTokens(record.userId);
   }
 }

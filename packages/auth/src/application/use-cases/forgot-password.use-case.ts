@@ -2,14 +2,18 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { IAuthProvider } from "../../domain/ports/auth-provider.port";
 import type { ITokenStore } from "../../domain/ports/token-store.port";
 import type { IEmailSender } from "../../domain/ports/email-sender.port";
+import type { IEmailRenderer } from "../../domain/ports/email-renderer.port";
 import type { ForgotPasswordDto } from "../dtos/auth.dtos";
 import { UserNotFoundError } from "../../domain/errors/auth-errors";
+import { EMAIL_TEMPLATES } from "../../email-templates";
 
 export class ForgotPasswordUseCase {
   constructor(
     private readonly authProvider: IAuthProvider,
     private readonly tokenStore: ITokenStore,
     private readonly emailSender: IEmailSender,
+    private readonly emailRenderer: IEmailRenderer,
+    private readonly baseUrl: string = "https://example.com",
   ) {}
 
   async execute(dto: ForgotPasswordDto): Promise<{ message: string }> {
@@ -31,11 +35,17 @@ export class ForgotPasswordUseCase {
       createdAt: new Date(),
     });
 
+    const resetLink = `${this.baseUrl}/reset-password?token=${resetToken}`;
+    const { html, text, subject } = await this.emailRenderer.render(
+      EMAIL_TEMPLATES.FORGOT_PASSWORD,
+      { resetLink },
+    );
+
     await this.emailSender.send({
       to: user.email,
-      subject: "Password Reset",
-      html: `<p>Reset your password using this link: <a href="https://example.com/reset-password?token=${resetToken}">Reset Password</a></p>`,
-      text: `Reset your password using this link: https://example.com/reset-password?token=${resetToken}`,
+      subject,
+      html,
+      text,
     });
 
     return { message: "Password reset email sent if the account exists." };

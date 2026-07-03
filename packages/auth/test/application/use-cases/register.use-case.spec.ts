@@ -21,6 +21,7 @@ describe("RegisterUseCase", () => {
       disable2FA: jest.fn(),
       sendVerifyEmail: jest.fn(),
       verifyEmail: jest.fn(),
+      issueTokens: jest.fn(),
     };
 
     useCase = new RegisterUseCase(mockAuthProvider);
@@ -37,25 +38,22 @@ describe("RegisterUseCase", () => {
     };
 
     mockAuthProvider.register.mockResolvedValue(mockUser);
-    mockAuthProvider.sendVerifyEmail.mockResolvedValue(undefined);
 
     const result = await useCase.execute({
       email: "test@example.com",
       username: "testuser",
-      password: "SecurePass123",
+      password: "SecurePass123@",
     });
 
     expect(mockAuthProvider.register).toHaveBeenCalledWith({
       email: "test@example.com",
       username: "testuser",
-      password: "SecurePass123",
+      password: "SecurePass123@",
     } satisfies RegisterRequest);
-
-    expect(mockAuthProvider.sendVerifyEmail).toHaveBeenCalledWith("kc-user-1");
 
     expect(result).toEqual({
       user: mockUser,
-      message: expect.stringContaining("verify your account"),
+      message: expect.stringContaining("successful"),
     });
   });
 
@@ -64,7 +62,7 @@ describe("RegisterUseCase", () => {
       useCase.execute({
         email: "not-an-email",
         username: "testuser",
-        password: "SecurePass123",
+        password: "SecurePass123@",
       }),
     ).rejects.toThrow("Invalid email");
   });
@@ -79,14 +77,14 @@ describe("RegisterUseCase", () => {
     ).rejects.toThrow("at least 8 characters");
   });
 
-  it("should throw when password is entirely numeric", async () => {
+  it("should throw when password lacks complexity", async () => {
     await expect(
       useCase.execute({
         email: "test@example.com",
         username: "testuser",
         password: "1234567890",
       }),
-    ).rejects.toThrow("entirely numeric");
+    ).rejects.toThrow("uppercase letter");
   });
 
   it("should propagate auth provider errors", async () => {
@@ -96,7 +94,7 @@ describe("RegisterUseCase", () => {
       useCase.execute({
         email: "test@example.com",
         username: "testuser",
-        password: "SecurePass123",
+        password: "SecurePass123@",
       }),
     ).rejects.toThrow("Keycloak unavailable");
   });

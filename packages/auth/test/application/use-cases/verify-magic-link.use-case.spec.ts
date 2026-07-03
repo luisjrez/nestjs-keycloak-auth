@@ -28,6 +28,7 @@ describe("VerifyMagicLinkUseCase", () => {
       disable2FA: jest.fn(),
       sendVerifyEmail: jest.fn(),
       verifyEmail: jest.fn(),
+      issueTokens: jest.fn(),
     };
 
     tokenStore = new InMemoryTokenStore();
@@ -48,7 +49,7 @@ describe("VerifyMagicLinkUseCase", () => {
 
   it("should verify a valid magic link", async () => {
     await setupValidLink();
-    mockAuthProvider.refreshToken.mockResolvedValue({
+    mockAuthProvider.issueTokens.mockResolvedValue({
       accessToken: "access-token-123",
       refreshToken: "refresh-token-123",
       expiresIn: 900,
@@ -56,6 +57,7 @@ describe("VerifyMagicLinkUseCase", () => {
 
     const result = await useCase.execute({ token: "valid-magic-token" });
 
+    expect(mockAuthProvider.issueTokens).toHaveBeenCalledWith("user-1");
     expect(result).toEqual({
       accessToken: "access-token-123",
       refreshToken: "refresh-token-123",
@@ -65,7 +67,7 @@ describe("VerifyMagicLinkUseCase", () => {
 
   it("should mark token as consumed after verification", async () => {
     await setupValidLink();
-    mockAuthProvider.refreshToken.mockResolvedValue({
+    mockAuthProvider.issueTokens.mockResolvedValue({
       accessToken: "a",
       refreshToken: "r",
       expiresIn: 900,

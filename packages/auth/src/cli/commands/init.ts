@@ -9,6 +9,9 @@ interface InitOptions {
 
 interface RealmConfig {
   realm: string;
+  serverUrl: string;
+  adminUser: string;
+  adminPassword: string;
   enabled: boolean;
   clients: Array<{
     clientId: string;
@@ -19,6 +22,11 @@ interface RealmConfig {
     serviceAccountsEnabled: boolean;
     standardFlowEnabled: boolean;
   }>;
+  smtp: {
+    host: string;
+    port: number;
+    fromEmail: string;
+  };
 }
 
 export async function initCommand(options: InitOptions): Promise<void> {
@@ -32,9 +40,15 @@ export async function initCommand(options: InitOptions): Promise<void> {
   `);
 
   const realm = await rl.question("? Realm name: ");
+  const serverUrl = await rl.question("? Keycloak server URL (default: http://localhost:8080): ");
+  const adminUser = await rl.question("? Keycloak admin username (default: admin): ");
+  const adminPassword = await rl.question("? Keycloak admin password (default: admin): ");
   const clientId = await rl.question("? Client ID: ");
   const secret = await rl.question("? Client Secret (leave empty to generate): ");
   const redirectUris = await rl.question("? Valid Redirect URIs (comma-separated): ");
+  const smtpHost = await rl.question("? SMTP host (optional, default: localhost): ");
+  const smtpPort = await rl.question("? SMTP port (optional, default: 1025): ");
+  const fromEmail = await rl.question("? From email (optional, default: noreply@example.com): ");
 
   rl.close();
 
@@ -43,6 +57,9 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
   const config: RealmConfig = {
     realm,
+    serverUrl: serverUrl.trim() || "http://localhost:8080",
+    adminUser: adminUser.trim() || "admin",
+    adminPassword: adminPassword.trim() || "admin",
     enabled: true,
     clients: [
       {
@@ -55,6 +72,11 @@ export async function initCommand(options: InitOptions): Promise<void> {
         standardFlowEnabled: true,
       },
     ],
+    smtp: {
+      host: smtpHost.trim() || "localhost",
+      port: parseInt(smtpPort.trim() || "1025", 10),
+      fromEmail: fromEmail.trim() || "noreply@example.com",
+    },
   };
 
   const outputDir = path.dirname(path.resolve(options.outputPath));
@@ -65,7 +87,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
   fs.writeFileSync(options.outputPath, JSON.stringify(config, null, 2), "utf-8");
 
   console.log(`
-  ✅ Realm configuration generated!
+  ✅ Configuration generated!
 
   File: ${path.resolve(options.outputPath)}
 
@@ -78,6 +100,11 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
     3. In your NestJS app, add to .env:
        KEYCLOAK_CONFIG_PATH=${options.outputPath}
+       KEYCLOAK_SERVER_URL=${config.serverUrl}
+       JWT_SECRET=your-256-bit-secret
+       SMTP_HOST=${config.smtp.host}
+       SMTP_PORT=${config.smtp.port}
+       SMTP_FROM=${config.smtp.fromEmail}
   `);
 }
 

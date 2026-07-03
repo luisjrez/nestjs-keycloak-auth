@@ -36,7 +36,8 @@ describe("InMemoryTokenStore", () => {
 
       const found = await store.findByToken("abc123", "MAGIC_LINK");
       expect(found).toBeDefined();
-      expect(found!.token).toBe("abc123");
+      expect(typeof found!.token).toBe("string");
+      expect(found!.token).not.toBe("abc123");
     });
 
     it("should return null for unknown token", async () => {

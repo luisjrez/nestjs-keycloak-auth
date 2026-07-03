@@ -18,6 +18,15 @@ export interface AuthModuleOptions {
 
   /** Token store implementation (required; use PrismaTokenStore, TypeORM, etc.) */
   tokenStore: ITokenStore;
+
+  /** Base URL for constructing email links (default: https://example.com) */
+  baseUrl?: string;
+
+  /** Whether to use secure cookies for refreshToken (default: false for dev, true in production) */
+  cookieSecure?: boolean;
+
+  /** Cookie domain for the refreshToken cookie (optional) */
+  cookieDomain?: string;
 }
 
 export interface AuthModuleAsyncOptions {

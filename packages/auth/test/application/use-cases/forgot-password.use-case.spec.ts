@@ -2,6 +2,7 @@ import { ForgotPasswordUseCase } from "../../../src/application/use-cases/forgot
 import type { IAuthProvider } from "../../../src/domain/ports/auth-provider.port";
 import { InMemoryTokenStore } from "../../../src/infrastructure/storage/in-memory-token.store";
 import type { IEmailSender } from "../../../src/domain/ports/email-sender.port";
+import type { IEmailRenderer } from "../../../src/domain/ports/email-renderer.port";
 import type { User } from "../../../src/domain/entities/user";
 import { UserNotFoundError } from "../../../src/domain/errors/auth-errors";
 
@@ -10,6 +11,7 @@ describe("ForgotPasswordUseCase", () => {
   let mockAuthProvider: jest.Mocked<IAuthProvider>;
   let tokenStore: InMemoryTokenStore;
   let mockEmailSender: jest.Mocked<IEmailSender>;
+  let mockEmailRenderer: jest.Mocked<IEmailRenderer>;
 
   beforeEach(() => {
     mockAuthProvider = {
@@ -26,12 +28,26 @@ describe("ForgotPasswordUseCase", () => {
       disable2FA: jest.fn(),
       sendVerifyEmail: jest.fn(),
       verifyEmail: jest.fn(),
+      issueTokens: jest.fn(),
     };
 
     tokenStore = new InMemoryTokenStore();
     mockEmailSender = { send: jest.fn() };
+    mockEmailRenderer = {
+      render: jest.fn().mockResolvedValue({
+        html: "<p>Reset your password</p>",
+        text: "Reset your password",
+        subject: "Reset your password",
+      }),
+    };
 
-    useCase = new ForgotPasswordUseCase(mockAuthProvider, tokenStore, mockEmailSender);
+    useCase = new ForgotPasswordUseCase(
+      mockAuthProvider,
+      tokenStore,
+      mockEmailSender,
+      mockEmailRenderer,
+      "https://example.com",
+    );
   });
 
   it("should send a password reset email", async () => {
@@ -50,10 +66,15 @@ describe("ForgotPasswordUseCase", () => {
     const result = await useCase.execute({ email: "test@example.com" });
 
     expect(mockAuthProvider.getUserByEmail).toHaveBeenCalledWith("test@example.com");
+    expect(mockEmailRenderer.render).toHaveBeenCalledWith(
+      "forgot-password",
+      { resetLink: expect.stringContaining("https://example.com/reset-password?token=") },
+    );
     expect(mockEmailSender.send).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "test@example.com",
-        subject: "Password Reset",
+        subject: "Reset your password",
+        html: expect.stringContaining("Reset your password"),
       }),
     );
     expect(result.message).toContain("Password reset email sent");
@@ -81,16 +102,14 @@ describe("ForgotPasswordUseCase", () => {
 
     await useCase.execute({ email: "test@example.com" });
 
-    const tokens = await tokenStore.findByToken(expect.any(String), "RESET_PASSWORD");
-    expect(tokens).toBeNull(); // We can't query by random token
-
-    // Verify send was called with a reset link
+    expect(mockEmailRenderer.render).toHaveBeenCalledWith(
+      "forgot-password",
+      { resetLink: expect.stringContaining("https://example.com/reset-password?token=") },
+    );
     expect(mockEmailSender.send).toHaveBeenCalledWith(
       expect.objectContaining({
-        html: expect.stringContaining("token="),
+        html: expect.stringContaining("Reset your password"),
       }),
     );
-    const callArg = (mockEmailSender.send as jest.Mock).mock.calls[0][0];
-    expect(callArg.html).toContain("reset-password");
   });
 });

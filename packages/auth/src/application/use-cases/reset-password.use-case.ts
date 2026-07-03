@@ -26,7 +26,7 @@ export class ResetPasswordUseCase {
     }
 
     await this.authProvider.completePasswordReset({
-      token: dto.token,
+      userId: record.userId,
       newPassword: dto.newPassword,
     });
 

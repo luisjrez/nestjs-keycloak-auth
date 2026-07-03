@@ -27,6 +27,7 @@ describe("ResetPasswordUseCase", () => {
       disable2FA: jest.fn(),
       sendVerifyEmail: jest.fn(),
       verifyEmail: jest.fn(),
+      issueTokens: jest.fn(),
     };
 
     tokenStore = new InMemoryTokenStore();
@@ -52,12 +53,12 @@ describe("ResetPasswordUseCase", () => {
 
     const result = await useCase.execute({
       token: "valid-reset-token",
-      newPassword: "NewSecurePass123",
+      newPassword: "NewSecurePass123@",
     });
 
     expect(mockAuthProvider.completePasswordReset).toHaveBeenCalledWith({
-      token: "valid-reset-token",
-      newPassword: "NewSecurePass123",
+      userId: "user-1",
+      newPassword: "NewSecurePass123@",
     });
 
     expect(result.message).toContain("reset successfully");
@@ -69,7 +70,7 @@ describe("ResetPasswordUseCase", () => {
 
     await useCase.execute({
       token: "valid-reset-token",
-      newPassword: "NewSecurePass123",
+      newPassword: "NewSecurePass123@",
     });
 
     const record = await tokenStore.findByToken("valid-reset-token", "RESET_PASSWORD");
@@ -80,7 +81,7 @@ describe("ResetPasswordUseCase", () => {
     await expect(
       useCase.execute({
         token: "nonexistent-token",
-        newPassword: "NewSecurePass123",
+        newPassword: "NewSecurePass123@",
       }),
     ).rejects.toThrow(TokenInvalidError);
   });
@@ -99,7 +100,7 @@ describe("ResetPasswordUseCase", () => {
     await expect(
       useCase.execute({
         token: "expired-token",
-        newPassword: "NewSecurePass123",
+        newPassword: "NewSecurePass123@",
       }),
     ).rejects.toThrow(ResetTokenExpiredError);
   });
@@ -119,6 +120,6 @@ describe("ResetPasswordUseCase", () => {
         token: "some-token",
         newPassword: "1234567890",
       }),
-    ).rejects.toThrow("entirely numeric");
+    ).rejects.toThrow("uppercase letter");
   });
 });

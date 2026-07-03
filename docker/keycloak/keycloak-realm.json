@@ -1,0 +1,65 @@
+{
+  "realm": "test-realm",
+  "enabled": true,
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": false,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "resetPasswordAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "requiredActions": [],
+  "users": [
+    {
+      "username": "service-account-test-client",
+      "enabled": true,
+      "serviceAccountClientId": "test-client",
+      "realmRoles": [],
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "query-groups",
+          "manage-clients",
+          "view-clients"
+        ]
+      }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "test-client",
+      "secret": "test-secret",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "realm-management",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": true
+    },
+    {
+      "clientId": "security-admin-console",
+      "enabled": true,
+      "publicClient": true
+    }
+  ],
+  "roles": {
+    "realm": [],
+    "client": {
+      "realm-management": [
+        { "name": "manage-users" },
+        { "name": "view-users" },
+        { "name": "query-users" },
+        { "name": "query-groups" },
+        { "name": "manage-clients" },
+        { "name": "view-clients" }
+      ]
+    }
+  }
+}

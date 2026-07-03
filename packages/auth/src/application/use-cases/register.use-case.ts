@@ -19,11 +19,9 @@ export class RegisterUseCase {
       password: dto.password,
     });
 
-    await this.authProvider.sendVerifyEmail(user.id);
-
     return {
       user,
-      message: "Registration successful. Please check your email to verify your account.",
+      message: "Registration successful.",
     };
   }
 }

@@ -1,18 +1,33 @@
+import { WeakPasswordError } from "../errors/auth-errors";
+
 export class Password {
   private constructor(public readonly value: string) {}
 
-  /**
-   * Minimum password requirements (Django-like):
-   * - At least 8 characters
-   * - Cannot be entirely numeric
-   */
   static create(raw: string): Password {
+    const errors: string[] = [];
+
     if (raw.length < 8) {
-      throw new Error("Password must be at least 8 characters long");
+      errors.push("at least 8 characters");
     }
-    if (/^\d+$/.test(raw)) {
-      throw new Error("Password cannot be entirely numeric");
+    if (!/[A-Z]/.test(raw)) {
+      errors.push("an uppercase letter");
     }
+    if (!/[a-z]/.test(raw)) {
+      errors.push("a lowercase letter");
+    }
+    if (!/[0-9]/.test(raw)) {
+      errors.push("a number");
+    }
+    if (!/[^A-Za-z0-9]/.test(raw)) {
+      errors.push("a special character");
+    }
+
+    if (errors.length > 0) {
+      throw new WeakPasswordError(
+        `Password must contain ${errors.join(", ")}`,
+      );
+    }
+
     return new Password(raw);
   }
 

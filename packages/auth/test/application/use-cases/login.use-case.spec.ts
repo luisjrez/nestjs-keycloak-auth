@@ -21,6 +21,7 @@ describe("LoginUseCase", () => {
       disable2FA: jest.fn(),
       sendVerifyEmail: jest.fn(),
       verifyEmail: jest.fn(),
+      issueTokens: jest.fn(),
     };
 
     useCase = new LoginUseCase(mockAuthProvider);
@@ -47,12 +48,12 @@ describe("LoginUseCase", () => {
 
     const result = await useCase.execute({
       email: "test@example.com",
-      password: "SecurePass123",
+      password: "SecurePass123@",
     });
 
     expect(mockAuthProvider.authenticate).toHaveBeenCalledWith({
       email: "test@example.com",
-      password: "SecurePass123",
+      password: "SecurePass123@",
     });
 
     expect(result).toEqual({
